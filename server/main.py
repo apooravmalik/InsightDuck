@@ -104,6 +104,34 @@ def get_duckdb_tables():
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+    
+# --- Get Project Status Endpoint [Protected] ---
+
+@app.post("/get-project-status/")
+def get_project_status(
+    project: ProjectRequest,
+    current_user: ClientOptions = Depends(get_current_user)
+):
+    """
+    Retrieves the full, up-to-date data profile for a given project table.
+    Ideal for refreshing the frontend after any cleaning or conversion operation.
+    """
+    try:
+        table_name = f"project_{project.project_id}"
+
+        # We can directly reuse our existing get_data_profile function
+        current_profile = get_data_profile(table_name=table_name)
+
+        return {
+            "message": "Current project status retrieved successfully.",
+            "project_id": project.project_id,
+            "profile": current_profile
+        }
+    except Exception as e:
+        # This will catch errors if the table doesn't exist for some reason
+        if "does not exist" in str(e):
+             raise HTTPException(status_code=404, detail=f"Project with ID {project.project_id} not found or data table is missing.")
+        raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
         
 # --- CSV upload and Profiling Endpoint [Protected] ---
 

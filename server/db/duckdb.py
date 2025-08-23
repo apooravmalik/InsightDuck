@@ -108,29 +108,59 @@ def suggest_type_conversions(table_name: str):
 
 def convert_column_types(table_name: str, conversions: list[dict]):
     """
-    Converts the data type of specified columns in a DuckDB table.
-    'conversions' should be a list of dicts, e.g.,
-    [{"column_name": "tenure", "new_type": "DOUBLE"}, ...]
+    Safely converts the data type of specified columns using a create, test, 
+    and replace strategy to prevent errors from bad values.
     """
     try:
+        report = []
         for conv in conversions:
             col = conv.get("column_name")
             new_type = conv.get("new_type")
             
             if not col or not new_type:
-                continue # Skip if the conversion info is incomplete
+                continue
 
-            # IMPORTANT: Sanitize column names to prevent SQL injection
-            safe_col_name = f'"{col.replace("`", "").replace(";", "")}"'
+            safe_col_name = f'"{col}"'
+            temp_col_name = f'"{col}_temp_conversion"'
 
-            # Build and execute the ALTER TABLE query
-            query = f"ALTER TABLE {table_name} ALTER COLUMN {safe_col_name} SET DATA TYPE {new_type};"
-            con.execute(query)
+            try:
+                # Step 1: Count initial nulls in the original column
+                initial_nulls = con.execute(f"SELECT COUNT(*) FROM {table_name} WHERE {safe_col_name} IS NULL;").fetchone()[0]
+
+                # Step 2: Create a new column with the attempted conversion
+                con.execute(f"ALTER TABLE {table_name} ADD COLUMN {temp_col_name} {new_type};")
+                con.execute(f"UPDATE {table_name} SET {temp_col_name} = TRY_CAST({safe_col_name} AS {new_type});")
+
+                # Step 3: Count nulls in the new column
+                new_nulls = con.execute(f"SELECT COUNT(*) FROM {table_name} WHERE {temp_col_name} IS NULL;").fetchone()[0]
+
+                # Step 4: Calculate conversion failures
+                conversion_failures = new_nulls - initial_nulls
+
+                # Step 5: Replace the original column
+                con.execute(f"ALTER TABLE {table_name} DROP COLUMN {safe_col_name};")
+                con.execute(f"ALTER TABLE {table_name} RENAME COLUMN {temp_col_name} TO {safe_col_name};")
+                
+                report.append({
+                    "column_name": col,
+                    "status": "Success",
+                    "new_type": new_type,
+                    "conversion_failures": conversion_failures
+                })
+
+            except Exception as col_error:
+                # If anything goes wrong for a single column, log it and continue
+                report.append({
+                    "column_name": col,
+                    "status": "Failed",
+                    "error": str(col_error)
+                })
         
-        print(f"✅ Successfully applied {len(conversions)} type conversions to table {table_name}.")
-        return {"status": "success", "message": f"{len(conversions)} columns converted."}
+        print(f"✅ Successfully applied type conversions to table {table_name}.")
+        return {"status": "success", "message": "Type conversion process completed.", "report": report}
+
     except Exception as e:
-        raise RuntimeError(f"Failed to convert column types: {e}")
+        raise RuntimeError(f"A critical error occurred during the conversion process: {e}")
     
 def auto_clean_and_prepare(table_name: str):
     """
