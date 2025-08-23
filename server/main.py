@@ -3,7 +3,7 @@ from fastapi import FastAPI, HTTPException, status, UploadFile, File, Depends
 from pydantic import BaseModel, EmailStr
 from gotrue.errors import AuthApiError
 from config.supabaseClient import supabase
-from db.duckdb import con, get_data_profile, suggest_type_conversions, convert_column_types
+from db.duckdb import con, get_data_profile, suggest_type_conversions, convert_column_types, get_all_tables, auto_clean_and_prepare
 from supabase.lib.client_options import ClientOptions
 from auth.auth import get_current_user
 import pandas as pd
@@ -88,7 +88,22 @@ def login_user(user_credentials: UserLogin):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"An unexpected error occurred: {str(e)}"
         )
-        
+
+# --- Check for db health ---
+@app.get("/health/duckdb-tables", tags=["Health"])
+def get_duckdb_tables():
+    """
+    Health check endpoint to list all tables currently in the DuckDB instance.
+    Useful for debugging in-memory table persistence.
+    """
+    try:
+        tables = get_all_tables()
+        return {
+            "message": "Current tables in DuckDB memory.",
+            "tables": tables
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
         
 # --- CSV upload and Profiling Endpoint [Protected] ---
 
@@ -118,8 +133,7 @@ async def upload_and_profile_csv(
         df = pd.read_csv(io.BytesIO(content), dtype=str, keep_default_na=False)
         df.replace('', None, inplace=True)
         
-        con.execute(f"DROP TABLE IF EXISTS {table_name};")
-        con.register(table_name, df)
+        con.execute(f"CREATE OR REPLACE TABLE {table_name} AS SELECT * FROM df;")
 
         # 4. Profile the data and return results
         profile = get_data_profile(table_name=table_name)
@@ -131,7 +145,35 @@ async def upload_and_profile_csv(
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
+    
+# --- Clean Data Endpoint [Protected] ---
 
+@app.post("/auto-clean/")
+def run_auto_clean(
+    project: ProjectRequest,
+    current_user: ClientOptions = Depends(get_current_user)
+):
+    """
+    Runs a powerful, automated cleaning and preparation script on the dataset.
+    """
+    try:
+        table_name = f"project_{project.project_id}"
+        
+        # Call the new, more comprehensive function
+        result = auto_clean_and_prepare(table_name)
+        
+        # Return a new profile to show the results of the cleaning
+        new_profile = get_data_profile(table_name)
+        
+        return {
+            "message": result.get("message"),
+            "operations_log": result.get("operations_log"),
+            "new_profile_summary": new_profile
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
+
+# --- Format Conversion Endpoints [Protected] ---
 
 @app.post("/suggest-conversions/")
 def get_suggested_conversions(
@@ -179,3 +221,4 @@ def apply_type_conversions(
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
+    

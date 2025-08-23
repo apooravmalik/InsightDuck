@@ -1,6 +1,7 @@
 # server/db/duckdb.py
 import duckdb
-import os # Import the os module
+import os
+import re
 
 # --- Persistent DuckDB Connection ---
 # Define the path for the database file
@@ -10,6 +11,17 @@ db_file_path = os.path.join(os.path.dirname(__file__), 'insightduck.db')
 # and use it for all storage. If the file exists, it reconnects to it.
 con = duckdb.connect(database=db_file_path, read_only=False)
 print(f"✅ DuckDB persistent database initialized at: {db_file_path}")
+
+# --- Health Check Function ---
+def get_all_tables():
+    """
+    Returns a list of all tables currently in the DuckDB database.
+    """
+    try:
+        tables_df = con.execute("SHOW TABLES;").fetchdf()
+        return tables_df['name'].tolist()
+    except Exception as e:
+        raise RuntimeError(f"Could not fetch tables: {e}")
 
 # --- Data Profiling Function ---
 def get_data_profile(table_name: str):
@@ -119,3 +131,56 @@ def convert_column_types(table_name: str, conversions: list[dict]):
         return {"status": "success", "message": f"{len(conversions)} columns converted."}
     except Exception as e:
         raise RuntimeError(f"Failed to convert column types: {e}")
+    
+def auto_clean_and_prepare(table_name: str):
+    """
+    Performs a comprehensive set of automated data cleaning and preparation tasks
+    based on a standard data analyst checklist.
+    """
+    try:
+        operations_log = []
+
+        # --- 1. Structural Cleaning: Column Names ---
+        schema_df = con.execute(f"DESCRIBE {table_name};").fetchdf()
+        for _, row in schema_df.iterrows():
+            original_name = row['column_name']
+            
+            # Convert to snake_case
+            s1 = re.sub('(.)([A-Z][a-z]+)', r'\1_\2', original_name)
+            new_name = re.sub('([a-z0-9])([A-Z])', r'\1_\2', s1).lower()
+            
+            # Remove special characters
+            new_name = re.sub(r'[^a-zA-Z0-9_]', '', new_name)
+
+            if original_name != new_name:
+                con.execute(f'ALTER TABLE {table_name} RENAME COLUMN "{original_name}" TO "{new_name}";')
+                operations_log.append(f"Renamed column '{original_name}' to '{new_name}'.")
+
+        # Re-fetch schema after renaming
+        schema_df = con.execute(f"DESCRIBE {table_name};").fetchdf()
+
+        # --- 2. Value Cleaning (Whitespace, Unify Nulls, Casing) ---
+        varchar_columns = schema_df[schema_df['column_type'] == 'VARCHAR']['column_name'].tolist()
+        
+        for col_name in varchar_columns:
+            safe_col_name = f'"{col_name}"'
+            
+            # Trim leading/trailing whitespace from all values
+            con.execute(f"UPDATE {table_name} SET {safe_col_name} = TRIM({safe_col_name});")
+
+            # Unify common null-like strings to actual NULL
+            null_like_values = ['N/A', 'NA', 'null', 'Null', '?', '', ' ']
+            con.execute(f"UPDATE {table_name} SET {safe_col_name} = NULL WHERE {safe_col_name} IN {tuple(null_like_values)};")
+            
+            # Standardize casing for categorical data (convert to Title Case)
+            # This is a good general approach for consistency ("male", "MALE" -> "Male")
+            con.execute(f"UPDATE {table_name} SET {safe_col_name} = ucase({safe_col_name});")
+        
+        operations_log.append(f"Cleaned whitespace, unified nulls, and standardized casing for all text columns.")
+        
+        # Note: Imputation and duplicate removal to be added in the future.
+
+        return {"status": "success", "message": "Automated preparation complete.", "operations_log": operations_log}
+
+    except Exception as e:
+        raise RuntimeError(f"Failed during automated preparation: {e}")
