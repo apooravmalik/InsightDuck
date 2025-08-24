@@ -214,3 +214,181 @@ def auto_clean_and_prepare(table_name: str):
 
     except Exception as e:
         raise RuntimeError(f"Failed during automated preparation: {e}")
+    
+# --- Find duplicates function---
+
+def find_duplicates(table_name: str, primary_key_column: str | None = None):
+    """
+    Finds both exact row-level duplicates (with a sample) and potential 
+    entity-level duplicates.
+    """
+    try:
+        # --- Part 1: Find and Sample Exact Duplicates ---
+        exact_duplicates_query = f"""
+        WITH RowCounts AS (
+            SELECT *, COUNT(*) OVER (PARTITION BY *) as row_count
+            FROM {table_name}
+        )
+        SELECT * FROM RowCounts WHERE row_count > 1 LIMIT 10;
+        """
+        exact_duplicates_sample_df = con.execute(exact_duplicates_query).fetchdf()
+        
+        count_query = f"""
+        SELECT (SELECT COUNT(*) FROM {table_name}) - (SELECT COUNT(*) FROM (SELECT DISTINCT * FROM {table_name}))
+        """
+        exact_duplicates_count = con.execute(count_query).fetchone()[0]
+
+        # --- Part 2: Find Potential Entity Duplicates ---
+        schema_df = con.execute(f"DESCRIBE {table_name};").fetchdf()
+        entity_col_to_check = None
+
+        if primary_key_column and primary_key_column in schema_df['column_name'].tolist():
+            entity_col_to_check = primary_key_column
+        else:
+            common_id_names = ['id', 'name', 'customer_id', 'user_id', 'customerid', 'userid']
+            for col in schema_df['column_name']:
+                if any(id_name in col.lower() for id_name in common_id_names):
+                    count_query = f'SELECT COUNT(*) - COUNT(DISTINCT "{col}") FROM {table_name};'
+                    if con.execute(count_query).fetchone()[0] > 0:
+                        entity_col_to_check = col
+                        break
+
+        entity_duplicates_sample = []
+        if entity_col_to_check:
+            entity_query = f"""
+            WITH PotentialEntityDupes AS (
+                SELECT "{entity_col_to_check}" FROM {table_name} GROUP BY "{entity_col_to_check}" HAVING COUNT(*) > 1
+            ),
+            FinalEntityDupes AS (
+                SELECT "{entity_col_to_check}" FROM (SELECT DISTINCT * FROM {table_name} WHERE "{entity_col_to_check}" IN (SELECT * FROM PotentialEntityDupes))
+                GROUP BY "{entity_col_to_check}" HAVING COUNT(*) > 1
+            )
+            SELECT * FROM {table_name} WHERE "{entity_col_to_check}" IN (SELECT * FROM FinalEntityDupes)
+            ORDER BY "{entity_col_to_check}" LIMIT 10;
+            """
+            entity_df = con.execute(entity_query).fetchdf()
+            if not entity_df.empty:
+                entity_duplicates_sample = entity_df.to_dict('records')
+
+        return {
+            "exact_duplicates": {
+                "count": exact_duplicates_count,
+                "message": "These are identical rows and are generally safe to remove.",
+                "sample": exact_duplicates_sample_df.to_dict('records')
+            },
+            "entity_duplicates": {
+                "checked_column": entity_col_to_check,
+                "message": f"These rows may share a common ID in '{entity_col_to_check}' but have different data elsewhere. Review carefully.",
+                "sample": entity_duplicates_sample
+            }
+        }
+        
+    except Exception as e:
+        raise RuntimeError(f"Failed to find duplicates: {e}")
+    
+    
+# --- Handle Duplicates Function ---
+
+def handle_duplicates(table_name: str, strategy: str):
+    """
+    Handles duplicate rows in a table.
+    """
+    try:
+        # This condition now accepts the new, more specific strategy name.
+        if strategy == "remove_exact_duplicates":
+            # Create a new table with only distinct rows, then replace the old one
+            temp_table_name = f"temp_{table_name}"
+            con.execute(f"CREATE TABLE {temp_table_name} AS SELECT DISTINCT * FROM {table_name};")
+            con.execute(f"DROP TABLE {table_name};")
+            con.execute(f"ALTER TABLE {temp_table_name} RENAME TO {table_name};")
+            
+            return {"status": "success", "message": "All exact duplicate rows have been removed."}
+        else:
+            return {"status": "skipped", "message": "Unknown or unsupported strategy."}
+            
+    except Exception as e:
+        raise RuntimeError(f"Failed to handle duplicates: {e}")
+
+# --- Impute Null Values Function ---
+def impute_null_values(table_name: str, imputations: list[dict]):
+    """
+    Imputes NULL values in specified columns using a given strategy.
+    'imputations' should be a list of dicts, e.g.,
+    [{"column_name": "age", "strategy": "mean"}, ...]
+    """
+    try:
+        operations_log = []
+        for imp in imputations:
+            col = imp.get("column_name")
+            strategy = imp.get("strategy")
+            custom_value = imp.get("value")
+            
+            if not col or not strategy:
+                continue
+
+            safe_col_name = f'"{col}"'
+            impute_value = None
+
+            if strategy == "mean":
+                impute_value = con.execute(f"SELECT AVG({safe_col_name}) FROM {table_name}").fetchone()[0]
+            elif strategy == "median":
+                impute_value = con.execute(f"SELECT MEDIAN({safe_col_name}) FROM {table_name}").fetchone()[0]
+            elif strategy == "mode":
+                impute_value = con.execute(f"SELECT MODE({safe_col_name}) FROM {table_name}").fetchone()[0]
+            elif strategy == "custom" and custom_value is not None:
+                impute_value = custom_value
+            
+            if impute_value is not None:
+                con.execute(f"UPDATE {table_name} SET {safe_col_name} = ? WHERE {safe_col_name} IS NULL;", [impute_value])
+                operations_log.append(f"Imputed NULLs in '{col}' with {strategy}: {impute_value}.")
+
+        return {"status": "success", "message": "Imputation complete.", "operations_log": operations_log}
+
+    except Exception as e:
+        raise RuntimeError(f"Failed during imputation: {e}")
+    
+# --- Drop columns function ---
+
+def drop_columns(table_name: str, columns_to_drop: list[str]):
+    """
+    Drops one or more specified columns from a DuckDB table.
+    """
+    try:
+        if not columns_to_drop:
+            return {"status": "skipped", "message": "No columns specified to drop."}
+
+        for col in columns_to_drop:
+            # Sanitize column name to prevent SQL injection
+            safe_col_name = f'"{col.replace("`", "").replace(";", "")}"'
+            query = f"ALTER TABLE {table_name} DROP COLUMN {safe_col_name};"
+            con.execute(query)
+        
+        operations_log = f"Successfully dropped columns: {', '.join(columns_to_drop)}."
+        print(f"✅ {operations_log}")
+        return {"status": "success", "message": operations_log}
+
+    except Exception as e:
+        raise RuntimeError(f"Failed to drop columns: {e}")
+
+# --- Final state export ---
+def export_table_to_csv_string(table_name: str):
+    """
+    Exports the entire content of a DuckDB table to a single CSV formatted string.
+    """
+    try:
+        
+        # Fetch the data as a pandas DataFrame and use its CSV export.
+        df = con.table(table_name).to_df()
+        
+        # Use pandas to_csv to write to an in-memory text buffer (StringIO)
+        from io import StringIO
+        buffer = StringIO()
+        df.to_csv(buffer, index=False)
+        
+        # Get the string value from the buffer
+        csv_string = buffer.getvalue()
+        
+        return csv_string
+
+    except Exception as e:
+        raise RuntimeError(f"Failed to export table to CSV: {e}")

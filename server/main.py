@@ -1,9 +1,10 @@
 # main.py
 from fastapi import FastAPI, HTTPException, status, UploadFile, File, Depends
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, EmailStr
 from gotrue.errors import AuthApiError
 from config.supabaseClient import supabase
-from db.duckdb import con, get_data_profile, suggest_type_conversions, convert_column_types, get_all_tables, auto_clean_and_prepare
+from db.duckdb import con, get_data_profile, suggest_type_conversions, convert_column_types, get_all_tables, auto_clean_and_prepare, handle_duplicates, impute_null_values, get_data_profile, find_duplicates, drop_columns, export_table_to_csv_string
 from supabase.lib.client_options import ClientOptions
 from auth.auth import get_current_user
 import pandas as pd
@@ -32,6 +33,27 @@ class ColumnConversion(BaseModel):
 class ConvertTypesRequest(BaseModel):
     project_id: int
     conversions: list[ColumnConversion]
+    
+class HandleDuplicatesRequest(BaseModel):
+    project_id: int
+    strategy: str = "remove_all"
+
+class ImputationTask(BaseModel):
+    column_name: str
+    strategy: str # e.g., "mean", "median", "mode", "custom"
+    value: str | int | float | None = None # Required if strategy is "custom"
+
+class ImputeNullsRequest(BaseModel):
+    project_id: int
+    imputations: list[ImputationTask]
+    
+class FindDuplicatesRequest(BaseModel):
+    project_id: int
+    primary_key_column: str | None = None
+    
+class DropColumnsRequest(BaseModel):
+    project_id: int
+    columns_to_drop: list[str]
 
 # --- API Endpoints ---
 
@@ -250,3 +272,121 @@ def apply_type_conversions(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
     
+# --- Find Duplicates endpoint [protected] ---
+@app.post("/find-duplicates/")
+def run_find_duplicates(
+    request_body: FindDuplicatesRequest,
+    current_user: ClientOptions = Depends(get_current_user)
+):
+    """
+    Finds duplicates. If a primary_key_column is provided, it's used for
+    entity detection. Otherwise, a heuristic is used.
+    """
+    try:
+        table_name = f"project_{request_body.project_id}"
+        result = find_duplicates(table_name, request_body.primary_key_column)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
+    
+# --- Data Duplication endpoint [protected] ---
+
+@app.post("/handle-duplicates/")
+def run_handle_duplicates(
+    request_body: HandleDuplicatesRequest,
+    current_user: ClientOptions = Depends(get_current_user)
+):
+    """
+    Handles duplicate rows in the dataset based on a specified strategy.
+    """
+    try:
+        table_name = f"project_{request_body.project_id}"
+        result = handle_duplicates(table_name, request_body.strategy)
+        
+        # After handling duplicates, return the updated project status
+        new_profile = get_data_profile(table_name)
+        return {
+            "message": result.get("message"),
+            "new_profile_summary": new_profile
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
+    
+# --- Impute Null Values endpoint [protected] ---
+@app.post("/impute-nulls/")
+def run_impute_nulls(
+    request_body: ImputeNullsRequest,
+    current_user: ClientOptions = Depends(get_current_user)
+):
+    """
+    Fills (imputes) NULL values in specified columns using different strategies.
+    """
+    try:
+        table_name = f"project_{request_body.project_id}"
+        imputations_list = [task.dict() for task in request_body.imputations]
+        
+        result = impute_null_values(table_name, imputations_list)
+        
+        # After imputation, return the updated project status
+        new_profile = get_data_profile(table_name)
+        return {
+            "message": result.get("message"),
+            "operations_log": result.get("operations_log"),
+            "new_profile_summary": new_profile
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
+    
+# --- Drop Columns endpoint [protected] ---
+    
+@app.post("/drop-columns/")
+def run_drop_columns(
+    request_body: DropColumnsRequest,
+    current_user: ClientOptions = Depends(get_current_user)
+):
+    """
+    Permanently drops one or more columns from the project's dataset.
+    """
+    try:
+        table_name = f"project_{request_body.project_id}"
+        result = drop_columns(table_name, request_body.columns_to_drop)
+        
+        # After dropping, return the updated project status so the UI can refresh
+        new_profile = get_data_profile(table_name)
+        return {
+            "message": result.get("message"),
+            "new_profile_summary": new_profile
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
+    
+# --- Export Cleaned Data Endpoint [Protected] ---
+@app.post("/export-csv/")
+def export_project_csv(
+    project: ProjectRequest, # Re-using the ProjectRequest model
+    current_user: ClientOptions = Depends(get_current_user)
+):
+    """
+    Exports the current state of the project's data table as a downloadable CSV file.
+    """
+    try:
+        table_name = f"project_{project.project_id}"
+        
+        # Get the CSV data as a single string
+        csv_data = export_table_to_csv_string(table_name)
+        
+        # Create a filename for the download
+        # We'll retrieve the original filename from our Supabase project table
+        response = supabase.table('user_projects').select('project_name').eq('id', project.project_id).single().execute()
+        original_filename = response.data.get('project_name', 'data.csv')
+        cleaned_filename = f"cleaned_{original_filename}"
+
+        # Use StreamingResponse to send the data
+        return StreamingResponse(
+            iter([csv_data]),
+            media_type="text/csv",
+            headers={"Content-Disposition": f"attachment; filename={cleaned_filename}"}
+        )
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"An error occurred during CSV export: {str(e)}")
