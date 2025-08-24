@@ -1,24 +1,23 @@
-// App.js
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from '../context/AuthContext';
-import { ProjectProvider } from '../context/ProjectContext'; // Import ProjectProvider
+import { ProjectProvider } from '../context/ProjectContext'; // 1. Import ProjectProvider
 import AuthPage from '../pages/AuthPage';
 import Dashboard from '../pages/Dashboard';
 
-// Protected Route Component
+// Protected Route Component (No changes needed)
 const ProtectedRoute = ({ children }) => {
   const { isAuthenticated } = useAuth();
   return isAuthenticated ? children : <Navigate to="/auth" replace />;
 };
 
-// Public Route Component (redirect to dashboard if already logged in)
+// Public Route Component (No changes needed)
 const PublicRoute = ({ children }) => {
   const { isAuthenticated } = useAuth();
   return !isAuthenticated ? children : <Navigate to="/dashboard" replace />;
 };
 
-// Main App Component
+// AppRoutes Component (No changes needed)
 const AppRoutes = () => {
   return (
     <Routes>
@@ -46,7 +45,8 @@ const AppRoutes = () => {
 const App = () => {
   return (
     <AuthProvider>
-      <ProjectProvider> {/* Wrap the Router with ProjectProvider */}
+      {/* 2. Wrap the Router with ProjectProvider */}
+      <ProjectProvider>
         <Router>
           <AppRoutes />
         </Router>

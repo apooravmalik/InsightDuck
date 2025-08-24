@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { useProjects } from '../context/ProjectContext'; // Import useProjects
+import { useProjects } from '../context/ProjectContext';
 import { PlusCircle, FileText, Loader2, AlertTriangle } from 'lucide-react';
 
-const Sidebar = ({ onUploadClick }) => { // Accept a prop to handle the click
+const Sidebar = ({ onSelectProject }) => {
   const { makeAuthenticatedRequest } = useAuth();
-  const { projects, setProjects } = useProjects(); // Use projects from context
+  const { projects, setProjects } = useProjects();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -19,7 +19,7 @@ const Sidebar = ({ onUploadClick }) => { // Accept a prop to handle the click
           throw new Error('Failed to fetch projects');
         }
         const data = await response.json();
-        setProjects(data); // Set projects in the context
+        setProjects(data);
       } catch (err) {
         setError(err.message || 'An error occurred while fetching projects.');
       } finally {
@@ -39,10 +39,7 @@ const Sidebar = ({ onUploadClick }) => { // Accept a prop to handle the click
     <aside className="w-64 bg-[#2A2828] border-r border-[#3F3F3F] p-4 flex flex-col">
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-lg font-semibold text-[#E8E8E8]">Projects</h2>
-        <button 
-          onClick={onUploadClick} 
-          className="p-1 text-[#A1A1A1] hover:text-[#F5D742] transition-colors"
-        >
+        <button className="p-1 text-[#A1A1A1] hover:text-[#F5D742] transition-colors">
           <PlusCircle className="h-6 w-6" />
         </button>
       </div>
@@ -64,7 +61,10 @@ const Sidebar = ({ onUploadClick }) => { // Accept a prop to handle the click
             {projects.length > 0 ? (
               projects.map((project) => (
                 <li key={project.id}>
-                  <button className="w-full text-left p-2 rounded-md hover:bg-[#3F3F3F] transition-colors focus:outline-none focus:ring-2 focus:ring-[#F5D742]">
+                  <button 
+                    onClick={() => onSelectProject(project.id)}
+                    className="w-full text-left p-2 rounded-md hover:bg-[#3F3F3F] transition-colors focus:outline-none focus:ring-2 focus:ring-[#F5D742]"
+                  >
                     <div className="flex items-start gap-2">
                       <FileText className="h-5 w-5 mt-0.5 text-[#A1A1A1]" />
                       <div className="flex-1 overflow-hidden">

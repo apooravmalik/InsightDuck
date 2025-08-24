@@ -1,75 +1,79 @@
 import React, { useState } from 'react';
-import Navbar from '../components/Navbar';
-import Sidebar from '../components/Sidebar';
-import UploadModal from '../components/UploadModal';
-import { useProjects } from '../context/ProjectContext'; // Import the project context
+import { useAuth } from '../context/AuthContext';
+import { User, LogOut } from 'lucide-react';
+import logo from '../assets/id-logo.png';
 
-// A new component for the Data Cleaning view
-const DataCleaningView = () => {
-  const { activeProject } = useProjects();
+// Receive activeTab and setActiveTab as props
+const Navbar = ({ activeTab, setActiveTab }) => {
+  const { user, logout } = useAuth();
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
 
-  if (!activeProject) {
-    return (
-      <div className="text-center">
-        <h1 className="text-2xl font-bold text-[#F5D742]">Welcome to InsightDuck</h1>
-        <p className="mt-2 text-[#A1A1A1]">
-          Select a project from the sidebar to get started, or upload a new one.
-        </p>
+  const handleLogout = () => {
+    logout();
+  };
+
+  return (
+    <nav className="bg-[#2A2828] border-b border-[#3F3F3F] px-4 py-2 flex items-center justify-between">
+      {/* Left Section: Logo */}
+      <div className="flex items-center">
+        <img src={logo} alt="InsightDuck Logo" className="h-8 w-auto" />
       </div>
-    );
-  }
 
-  // This is where the main chat UI and data tables will go.
-  // For now, we'll just display the raw profile data.
-  return (
-    <div>
-      <h1 className="text-2xl font-bold text-[#F5D742]">
-        Project: {activeProject.profile?.project_name || activeProject.project_id}
-      </h1>
-      <pre className="mt-4 p-4 bg-[#2A2828] rounded-lg text-sm overflow-x-auto">
-        {JSON.stringify(activeProject.profile, null, 2)}
-      </pre>
-    </div>
-  );
-};
-
-// A new component for the EDA view
-const EdaView = () => {
-  return (
-    <div className="text-center">
-      <h1 className="text-2xl font-bold text-[#F5D742]">Exploratory Data Analysis</h1>
-      <p className="mt-2 text-[#A1A1A1]">
-        This feature is coming soon!
-      </p>
-    </div>
-  );
-};
-
-
-const Dashboard = () => {
-  const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState('Data Cleaning'); // State is now here
-
-  return (
-    <>
-      <div className="h-screen bg-[#1E1C1C] text-[#E8E8E8] flex flex-col">
-        {/* Pass state and setter to Navbar */}
-        <Navbar activeTab={activeTab} setActiveTab={setActiveTab} />
-        <div className="flex flex-grow overflow-hidden">
-          <Sidebar onUploadClick={() => setIsUploadModalOpen(true)} />
-          <main className="flex-grow p-8 overflow-y-auto">
-            {/* Conditionally render the view based on the active tab */}
-            {activeTab === 'Data Cleaning' && <DataCleaningView />}
-            {activeTab === 'EDA' && <EdaView />}
-          </main>
-        </div>
+      {/* Middle Section: Tabs */}
+      <div className="flex items-center gap-2">
+        <button
+          onClick={() => setActiveTab('EDA')}
+          className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+            activeTab === 'EDA'
+              ? 'bg-[#F5D742] text-[#1E1C1C]'
+              : 'text-[#A1A1A1] hover:bg-[#3F3F3F] hover:text-[#E8E8E8]'
+          }`}
+        >
+          EDA
+        </button>
+        <button
+          onClick={() => setActiveTab('Data Cleaning')}
+          className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+            activeTab === 'Data Cleaning'
+              ? 'bg-[#F5D742] text-[#1E1C1C]'
+              : 'text-[#A1A1A1] hover:bg-[#3F3F3F] hover:text-[#E8E8E8]'
+          }`}
+        >
+          Data Cleaning
+        </button>
       </div>
-      <UploadModal 
-        isOpen={isUploadModalOpen} 
-        onClose={() => setIsUploadModalOpen(false)} 
-      />
-    </>
+
+      {/* Right Section: User Dropdown */}
+      <div className="relative">
+        <button
+          onClick={() => setIsDropdownOpen(!isDropdownOpen)}
+          className="w-9 h-9 flex items-center justify-center bg-[#3F3F3F] rounded-full hover:bg-[#F5D742] hover:text-[#1E1C1C] transition-colors"
+        >
+          <User className="h-5 w-5" />
+        </button>
+
+        {/* Dropdown Menu */}
+        {isDropdownOpen && (
+          <div 
+            className="absolute right-0 mt-2 w-56 bg-[#2A2828] border border-[#3F3F3F] rounded-lg shadow-lg py-2 z-10"
+            onMouseLeave={() => setIsDropdownOpen(false)}
+          >
+            <div className="px-4 py-2 border-b border-[#3F3F3F]">
+              <p className="text-sm text-[#A1A1A1]">Signed in as</p>
+              <p className="text-sm font-medium text-[#E8E8E8] truncate">{user?.email}</p>
+            </div>
+            <button
+              onClick={handleLogout}
+              className="w-full text-left px-4 py-2 text-sm text-[#E8E8E8] hover:bg-[#3F3F3F] flex items-center"
+            >
+              <LogOut className="h-4 w-4 mr-2" />
+              Log out
+            </button>
+          </div>
+        )}
+      </div>
+    </nav>
   );
 };
 
-export default Dashboard;
+export default Navbar;
