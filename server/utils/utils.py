@@ -21,3 +21,16 @@ def create_project_entry(user_id: str, project_name: str, storage_file_name: str
     except Exception as e:
         print(f"❌ Error creating project entry in Supabase: {e}")
         return None
+    
+def get_user_projects(user_id: str):
+    """
+    Fetches all projects for a given user_id from the user_projects table.
+    """
+    try:
+        response = supabase.table('user_projects').select('*').eq('user_id', user_id).order('created_at', desc=True).execute()
+        if response.data:
+            return response.data
+        return [] # Return an empty list if no projects are found
+    except Exception as e:
+        print(f"❌ Error fetching user projects from Supabase: {e}")
+        return None

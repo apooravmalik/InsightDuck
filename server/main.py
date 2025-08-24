@@ -1,6 +1,7 @@
 # main.py
 from fastapi import FastAPI, HTTPException, status, UploadFile, File, Depends
 from fastapi.responses import StreamingResponse
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr
 from gotrue.errors import AuthApiError
 from config.supabaseClient import supabase
@@ -9,10 +10,18 @@ from supabase.lib.client_options import ClientOptions
 from auth.auth import get_current_user
 import pandas as pd
 import io
-from utils.utils import create_project_entry
+from utils.utils import create_project_entry, get_user_projects
 
 # --- FastAPI App Initialization ---
 app = FastAPI(title="DuckDB Data Agent", version="0.1.0")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173"],  # The origin of your React frontend
+    allow_credentials=True,
+    allow_methods=["*"],  # Allows all methods (GET, POST, etc.)
+    allow_headers=["*"],  # Allows all headers (like Authorization)
+)
 
 # --- Pydantic Models ---
 class UserCreate(BaseModel):
@@ -110,6 +119,23 @@ def login_user(user_credentials: UserLogin):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"An unexpected error occurred: {str(e)}"
         )
+        
+# --- Get User Projects Endpoint [Protected] ---
+@app.get("/projects/")
+def list_user_projects(current_user: ClientOptions = Depends(get_current_user)):
+    """
+    Retrieves a list of all projects associated with the authenticated user.
+    """
+    try:
+        user_id = current_user.id
+        print(f"this is the user id: {user_id}")
+        projects = get_user_projects(user_id)
+        if projects is None:
+            # This case handles exceptions from the util function
+            raise HTTPException(status_code=500, detail="Could not retrieve projects.")
+        return projects
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
 
 # --- Check for db health ---
 @app.get("/health/duckdb-tables", tags=["Health"])

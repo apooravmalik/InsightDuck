@@ -2,6 +2,7 @@
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from '../context/AuthContext';
+import { ProjectProvider } from '../context/ProjectContext'; // Import ProjectProvider
 import AuthPage from '../pages/AuthPage';
 import Dashboard from '../pages/Dashboard';
 
@@ -45,9 +46,11 @@ const AppRoutes = () => {
 const App = () => {
   return (
     <AuthProvider>
-      <Router>
-        <AppRoutes />
-      </Router>
+      <ProjectProvider> {/* Wrap the Router with ProjectProvider */}
+        <Router>
+          <AppRoutes />
+        </Router>
+      </ProjectProvider>
     </AuthProvider>
   );
 };
