@@ -3,7 +3,7 @@ import { useAuth } from '../context/AuthContext';
 import { useProjects } from '../context/ProjectContext';
 import { PlusCircle, FileText, Loader2, AlertTriangle } from 'lucide-react';
 
-const Sidebar = ({ onSelectProject }) => {
+const Sidebar = ({ onUploadClick, onSelectProject }) => {
   const { makeAuthenticatedRequest } = useAuth();
   const { projects, setProjects } = useProjects();
   const [loading, setLoading] = useState(true);
@@ -39,7 +39,10 @@ const Sidebar = ({ onSelectProject }) => {
     <aside className="w-64 bg-[#2A2828] border-r border-[#3F3F3F] p-4 flex flex-col">
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-lg font-semibold text-[#E8E8E8]">Projects</h2>
-        <button className="p-1 text-[#A1A1A1] hover:text-[#F5D742] transition-colors">
+        <button 
+          onClick={onUploadClick}
+          className="p-1 text-[#A1A1A1] hover:text-[#F5D742] transition-colors"
+        >
           <PlusCircle className="h-6 w-6" />
         </button>
       </div>

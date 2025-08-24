@@ -1,11 +1,10 @@
 import React, { useState } from 'react';
 import Navbar from '../components/Navbar';
 import Sidebar from '../components/Sidebar';
+import UploadModal from '../components/UploadModal';
 import { useProjects } from '../context/ProjectContext';
 import { useAuth } from '../context/AuthContext';
 import { Loader2 } from 'lucide-react';
-
-// --- Helper Components ---
 
 const DataCleaningView = ({ isLoading }) => {
   const { activeProject } = useProjects();
@@ -23,7 +22,7 @@ const DataCleaningView = ({ isLoading }) => {
       <div className="text-center">
         <h1 className="text-2xl font-bold text-[#F5D742]">Welcome to InsightDuck</h1>
         <p className="mt-2 text-[#A1A1A1]">
-          Select a project from the sidebar to get started.
+          Select a project from the sidebar to get started, or upload a new one.
         </p>
       </div>
     );
@@ -50,9 +49,8 @@ const EdaView = () => {
   );
 };
 
-// --- Main Dashboard Component ---
-
 const Dashboard = () => {
+  const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
   const [activeTab, setActiveTab] = useState('Data Cleaning');
   const [isProjectLoading, setIsProjectLoading] = useState(false);
   const { setActiveProject } = useProjects();
@@ -79,18 +77,25 @@ const Dashboard = () => {
   };
 
   return (
-    <div className="h-screen bg-[#1E1C1C] text-[#E8E8E8] flex flex-col">
-      <Navbar activeTab={activeTab} setActiveTab={setActiveTab} />
-      <div className="flex flex-grow overflow-hidden">
-        <Sidebar 
-          onSelectProject={handleSelectProject}
-        />
-        <main className="flex-grow p-8 overflow-y-auto">
-          {activeTab === 'Data Cleaning' && <DataCleaningView isLoading={isProjectLoading} />}
-          {activeTab === 'EDA' && <EdaView />}
-        </main>
+    <>
+      <div className="h-screen bg-[#1E1C1C] text-[#E8E8E8] flex flex-col">
+        <Navbar activeTab={activeTab} setActiveTab={setActiveTab} />
+        <div className="flex flex-grow overflow-hidden">
+          <Sidebar 
+            onUploadClick={() => setIsUploadModalOpen(true)} 
+            onSelectProject={handleSelectProject}
+          />
+          <main className="flex-grow p-8 overflow-y-auto">
+            {activeTab === 'Data Cleaning' && <DataCleaningView isLoading={isProjectLoading} />}
+            {activeTab === 'EDA' && <EdaView />}
+          </main>
+        </div>
       </div>
-    </div>
+      <UploadModal 
+        isOpen={isUploadModalOpen} 
+        onClose={() => setIsUploadModalOpen(false)} 
+      />
+    </>
   );
 };
 
