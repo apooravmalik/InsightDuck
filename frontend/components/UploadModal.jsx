@@ -3,6 +3,7 @@ import { useDropzone } from 'react-dropzone';
 import { useProjects } from '../context/ProjectContext';
 import { UploadCloud, Loader2, AlertTriangle, FileText } from 'lucide-react';
 import Modal from '../components/Modal';
+import { API_URL } from '../config/config.js';
 
 const UploadModal = ({ isOpen, onClose }) => {
   const { setActiveProject, addProject } = useProjects();
@@ -42,7 +43,7 @@ const UploadModal = ({ isOpen, onClose }) => {
 
     try {
       const token = localStorage.getItem('access_token');
-      const response = await fetch('http://127.0.0.1:8000/upload-and-profile/', {
+      const response = await fetch(`${API_URL}/upload-and-profile/`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,

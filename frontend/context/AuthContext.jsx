@@ -1,6 +1,5 @@
 /* eslint-disable react-refresh/only-export-components */
-// AuthContext.js
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 
 const AuthContext = createContext();
 
@@ -18,7 +17,6 @@ export const AuthProvider = ({ children }) => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [loading, setLoading] = useState(true);
 
-  // Check for existing authentication on app load
   useEffect(() => {
     const token = localStorage.getItem('access_token');
     const email = localStorage.getItem('user_email');
@@ -31,7 +29,6 @@ export const AuthProvider = ({ children }) => {
     setLoading(false);
   }, []);
 
-  // Login function
   const login = (email, accessToken) => {
     localStorage.setItem('access_token', accessToken);
     localStorage.setItem('user_email', email);
@@ -41,25 +38,26 @@ export const AuthProvider = ({ children }) => {
     setIsAuthenticated(true);
   };
 
-  // Logout function
-  const logout = () => {
+  // Wrap logout in useCallback to stabilize its reference
+  const logout = useCallback(() => {
     localStorage.removeItem('access_token');
     localStorage.removeItem('user_email');
     
     setUser(null);
     setSession(null);
     setIsAuthenticated(false);
-  };
+  }, []);
 
-  // Utility function for authenticated API calls
-  const makeAuthenticatedRequest = async (url, options = {}) => {
+  // Wrap makeAuthenticatedRequest in useCallback
+  const makeAuthenticatedRequest = useCallback(async (url, options = {}) => {
     const token = session?.access_token || localStorage.getItem('access_token');
     
     if (!token) {
+      logout();
       throw new Error('No access token available');
     }
 
-    return fetch(url, {
+    const response = await fetch(url, {
       ...options,
       headers: {
         'Content-Type': 'application/json',
@@ -67,7 +65,13 @@ export const AuthProvider = ({ children }) => {
         ...options.headers,
       },
     });
-  };
+
+    if (response.status === 401) {
+      logout();
+    }
+
+    return response;
+  }, [session, logout]); // Add session and logout as dependencies
 
   const value = {
     user,
@@ -79,11 +83,10 @@ export const AuthProvider = ({ children }) => {
     makeAuthenticatedRequest
   };
 
-  // Show loading spinner while checking authentication
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-2 border-blue-600 border-t-transparent"></div>
+      <div className="min-h-screen flex items-center justify-center bg-[#1E1C1C]">
+        <div className="animate-spin rounded-full h-8 w-8 border-2 border-[#F5D742] border-t-transparent"></div>
       </div>
     );
   }

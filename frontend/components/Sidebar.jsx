@@ -2,8 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useProjects } from '../context/ProjectContext';
 import { PlusCircle, FileText, Loader2, AlertTriangle } from 'lucide-react';
+import { API_URL } from '../config/config.js';
 
-const Sidebar = ({ onUploadClick, onSelectProject }) => {
+// Added onSessionExpired prop
+const Sidebar = ({ onUploadClick, onSelectProject, onSessionExpired }) => {
   const { makeAuthenticatedRequest } = useAuth();
   const { projects, setProjects } = useProjects();
   const [loading, setLoading] = useState(true);
@@ -14,7 +16,14 @@ const Sidebar = ({ onUploadClick, onSelectProject }) => {
       try {
         setLoading(true);
         setError('');
-        const response = await makeAuthenticatedRequest('http://127.0.0.1:8000/projects/');
+        const response = await makeAuthenticatedRequest(`${API_URL}/projects/`);
+        
+        // Check for 401 specifically
+        if (response.status === 401) {
+          onSessionExpired();
+          return; 
+        }
+
         if (!response.ok) {
           throw new Error('Failed to fetch projects');
         }
@@ -28,7 +37,7 @@ const Sidebar = ({ onUploadClick, onSelectProject }) => {
     };
 
     fetchProjects();
-  }, [makeAuthenticatedRequest, setProjects]);
+  }, [makeAuthenticatedRequest, setProjects, onSessionExpired]);
 
   const formatDate = (dateString) => {
     const options = { year: 'numeric', month: 'short', day: 'numeric' };

@@ -19,12 +19,24 @@ export const ProjectProvider = ({ children }) => {
     setProjects(prevProjects => [newProject, ...prevProjects]);
   };
 
+  // New function to update the profile of the active project
+  const updateActiveProjectProfile = (newProfile) => {
+    setActiveProject(prevProject => {
+      if (!prevProject) return null;
+      return {
+        ...prevProject,
+        profile: newProfile
+      };
+    });
+  };
+
   const value = {
     projects,
     setProjects,
     activeProject,
     setActiveProject,
     addProject,
+    updateActiveProjectProfile, // Expose the new function
   };
 
   return (
