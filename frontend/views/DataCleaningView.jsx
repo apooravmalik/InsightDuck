@@ -1,27 +1,21 @@
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import { useProjects } from '../context/ProjectContext';
 import { Loader2 } from 'lucide-react';
 import DataTable from '../components/DataTable';
 import Accordion from '../components/Accordion';
 import AutoCleanStep from '../components/cleaning-steps/AutoCleanStep';
+import FindDuplicatesStep from '../components/cleaning-steps/FindDuplicatesStep';
 
 const DataCleaningView = ({ isLoading: isProjectLoading }) => {
-  const { activeProject } = useProjects();
-  
-  const [agentMessages, setAgentMessages] = useState([]);
-  const [actionStep, setActionStep] = useState('initial');
-
-  // Reset the view when the active project changes
-  useEffect(() => {
-    setAgentMessages([]);
-    setActionStep('initial');
-  }, [activeProject]);
+  // Read the entire session state from the context
+  const { currentSession, updateCurrentSession } = useProjects();
 
   if (isProjectLoading) {
     return <div className="flex items-center justify-center h-full"><Loader2 className="h-8 w-8 animate-spin text-[#F5D742]" /></div>;
   }
 
-  if (!activeProject) {
+  // The initial welcome message
+  if (!currentSession) {
     return (
       <div className="text-center">
         <h1 className="text-2xl font-bold text-[#F5D742]">Welcome to InsightDuck</h1>
@@ -30,7 +24,7 @@ const DataCleaningView = ({ isLoading: isProjectLoading }) => {
     );
   }
 
-  const profile = activeProject.profile;
+  const { profile, agentMessages, actionStep } = currentSession;
   const schemaColumns = [{ Header: 'Column Name', accessor: 'column_name' }, { Header: 'Data Type', accessor: 'column_type' }];
   const sampleDataColumns = profile.schema.map(col => ({ Header: col.column_name, accessor: col.column_name }));
 
@@ -42,7 +36,7 @@ const DataCleaningView = ({ isLoading: isProjectLoading }) => {
         <div className="flex-grow space-y-4 overflow-y-auto pr-2">
           <div className="p-4 bg-[#1E1C1C] rounded-lg">
             <p className="text-sm text-[#E8E8E8]">
-              I've loaded your dataset, <span className="font-semibold text-[#F5D742]">{profile.project_name || `Project ID ${activeProject.project_id}`}</span>. 
+              I've loaded your dataset, <span className="font-semibold text-[#F5D742]">{profile.project_name || `Project ID ${profile.project_id}`}</span>. 
               It has <span className="font-semibold">{profile.total_rows}</span> rows and <span className="font-semibold">{profile.total_columns}</span> columns. 
               I found <span className="font-semibold">{profile.duplicates_count}</span> duplicate rows.
             </p>
@@ -58,7 +52,8 @@ const DataCleaningView = ({ isLoading: isProjectLoading }) => {
                   </ul>
                 </div>
               )}
-               {msg.type === 'error' && <p className="text-sm text-red-400">{msg.content}</p>}
+              {msg.type === 'info' && <p className="text-sm text-[#E8E8E8]">{msg.content}</p>}
+              {msg.type === 'error' && <p className="text-sm text-red-400">{msg.content}</p>}
             </div>
           ))}
         </div>
@@ -66,21 +61,33 @@ const DataCleaningView = ({ isLoading: isProjectLoading }) => {
         {/* Render the current step's component */}
         {actionStep === 'initial' && (
           <AutoCleanStep 
-            setAgentMessages={setAgentMessages}
-            onComplete={() => {
-              const nextStep = 'find_duplicates';
-              console.log(`auto clean done, changed the step to ${nextStep}`);
-              setActionStep(nextStep);
+            onComplete={(newProfile, newMessages) => {
+              updateCurrentSession({
+                profile: newProfile,
+                agentMessages: [...agentMessages, ...newMessages],
+                actionStep: 'find_duplicates',
+              });
             }}
           />
         )}
 
         {actionStep === 'find_duplicates' && (
-          <div className="mt-6 pt-4 border-t border-[#3F3F3F]">
-            <button className="w-full bg-[#F5D742] text-[#1E1C1C] font-semibold py-2 px-4 rounded-lg hover:bg-[#E0C53B]">
-              Next: Find Duplicates
-            </button>
-          </div>
+          <FindDuplicatesStep
+            onComplete={(newMessages) => {
+               updateCurrentSession({
+                agentMessages: [...agentMessages, ...newMessages],
+                actionStep: 'handle_duplicates',
+              });
+            }}
+          />
+        )}
+
+        {actionStep === 'handle_duplicates' && (
+           <div className="mt-6 pt-4 border-t border-[#3F3F3F]">
+             <button className="w-full bg-[#F5D742] text-[#1E1C1C] font-semibold py-2 px-4 rounded-lg hover:bg-[#E0C53B]">
+               Next: Handle Duplicates
+             </button>
+           </div>
         )}
       </div>
 

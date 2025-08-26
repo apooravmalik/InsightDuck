@@ -4,37 +4,33 @@ import { useProjects } from '../../context/ProjectContext';
 import { Loader2 } from 'lucide-react';
 import { API_URL } from '../../config/config';
 
-// onComplete now passes the results back up
-const AutoCleanStep = ({ onComplete }) => {
+const FindDuplicatesStep = ({ onComplete }) => {
   const { makeAuthenticatedRequest } = useAuth();
-  const { activeProjectId, currentSession } = useProjects();
+  const { activeProjectId } = useProjects();
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState('');
 
-  const handleAutoClean = async () => {
+  const handleFindDuplicates = async () => {
     if (!activeProjectId) return;
 
     setIsProcessing(true);
     setError('');
     try {
-      const response = await makeAuthenticatedRequest(`${API_URL}/auto-clean/`, {
+      const response = await makeAuthenticatedRequest(`${API_URL}/find-duplicates/`, {
         method: 'POST',
         body: JSON.stringify({ project_id: activeProjectId }),
       });
       const data = await response.json();
       if (!response.ok) {
-        throw new Error(data.detail || 'Auto-cleaning failed');
+        throw new Error(data.detail || 'Failed to find duplicates');
       }
+
+      console.log("Duplicates Found:", data);
       
-      const updatedProfile = {
-        ...data.new_profile_summary,
-        project_name: currentSession.profile.project_name 
-      };
+      const message = `I found ${data.exact_duplicates.count} exact duplicate rows.`;
+      const newMessages = [{ type: 'info', content: message }];
       
-      const newMessages = [{ type: 'log', content: data.operations_log }];
-      
-      // Pass the new profile and messages to the parent
-      onComplete(updatedProfile, newMessages);
+      onComplete(newMessages);
 
     } catch (err) {
       setError(err.message);
@@ -46,16 +42,16 @@ const AutoCleanStep = ({ onComplete }) => {
   return (
     <div className="mt-6 pt-4 border-t border-[#3F3F3F]">
       <button 
-        onClick={handleAutoClean}
+        onClick={handleFindDuplicates}
         disabled={isProcessing}
         className="w-full bg-[#F5D742] text-[#1E1C1C] font-semibold py-2 px-4 rounded-lg hover:bg-[#E0C53B] disabled:opacity-50 flex items-center justify-center transition-colors"
       >
         {isProcessing && <Loader2 className="h-5 w-5 animate-spin mr-2" />}
-        Begin Automated Cleaning
+        Find Duplicates
       </button>
       {error && <p className="text-sm text-red-400 mt-2 text-center">{error}</p>}
     </div>
   );
 };
 
-export default AutoCleanStep;
+export default FindDuplicatesStep;

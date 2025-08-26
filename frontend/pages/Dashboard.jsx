@@ -7,7 +7,7 @@ import DataCleaningView from '../views/DataCleaningView';
 import EdaView from '../views/EdaView';
 import { useProjects } from '../context/ProjectContext';
 import { useAuth } from '../context/AuthContext';
-import { API_URL } from '../config/config.js';
+import { API_URL } from '../config/config';
 
 const Dashboard = () => {
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
@@ -17,9 +17,8 @@ const Dashboard = () => {
   const { setActiveProject } = useProjects();
   const { makeAuthenticatedRequest } = useAuth();
 
-  const handleSelectProject = async (projectId) => {
+  const handleSelectProject = useCallback(async (projectId) => {
     setIsProjectLoading(true);
-    setActiveProject(null);
     try {
       const response = await makeAuthenticatedRequest(`${API_URL}/get-project-status/`, {
         method: 'POST',
@@ -33,13 +32,14 @@ const Dashboard = () => {
         throw new Error('Failed to load project details.');
       }
       const data = await response.json();
+      // setActiveProject now initializes or updates the session
       setActiveProject(data);
     } catch (error) {
       console.error("Error fetching project:", error);
     } finally {
       setIsProjectLoading(false);
     }
-  };
+  }, [makeAuthenticatedRequest, setActiveProject]);
 
   const handleSessionExpired = useCallback(() => {
     setIsSessionModalOpen(true);

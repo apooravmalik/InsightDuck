@@ -1,43 +1,42 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useProjects } from '../context/ProjectContext';
 import { PlusCircle, FileText, Loader2, AlertTriangle } from 'lucide-react';
-import { API_URL } from '../config/config.js';
+import { API_URL } from '../config/config';
 
-// Added onSessionExpired prop
 const Sidebar = ({ onUploadClick, onSelectProject, onSessionExpired }) => {
   const { makeAuthenticatedRequest } = useAuth();
-  const { projects, setProjects } = useProjects();
+  // Use allProjects from the context for the list
+  const { allProjects, setAllProjects } = useProjects();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  useEffect(() => {
-    const fetchProjects = async () => {
-      try {
-        setLoading(true);
-        setError('');
-        const response = await makeAuthenticatedRequest(`${API_URL}/projects/`);
-        
-        // Check for 401 specifically
-        if (response.status === 401) {
-          onSessionExpired();
-          return; 
-        }
-
-        if (!response.ok) {
-          throw new Error('Failed to fetch projects');
-        }
-        const data = await response.json();
-        setProjects(data);
-      } catch (err) {
-        setError(err.message || 'An error occurred while fetching projects.');
-      } finally {
-        setLoading(false);
+  const fetchProjects = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError('');
+      const response = await makeAuthenticatedRequest(`${API_URL}/projects/`);
+      
+      if (response.status === 401) {
+        onSessionExpired();
+        return; 
       }
-    };
 
+      if (!response.ok) {
+        throw new Error('Failed to fetch projects');
+      }
+      const data = await response.json();
+      setAllProjects(data);
+    } catch (err) {
+      setError(err.message || 'An error occurred while fetching projects.');
+    } finally {
+      setLoading(false);
+    }
+  }, [makeAuthenticatedRequest, setAllProjects, onSessionExpired]);
+
+  useEffect(() => {
     fetchProjects();
-  }, [makeAuthenticatedRequest, setProjects, onSessionExpired]);
+  }, [fetchProjects]);
 
   const formatDate = (dateString) => {
     const options = { year: 'numeric', month: 'short', day: 'numeric' };
@@ -70,8 +69,8 @@ const Sidebar = ({ onUploadClick, onSelectProject, onSessionExpired }) => {
         )}
         {!loading && !error && (
           <ul className="space-y-2">
-            {projects.length > 0 ? (
-              projects.map((project) => (
+            {allProjects.length > 0 ? (
+              allProjects.map((project) => (
                 <li key={project.id}>
                   <button 
                     onClick={() => onSelectProject(project.id)}

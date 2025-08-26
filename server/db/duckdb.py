@@ -226,10 +226,10 @@ def find_duplicates(table_name: str, primary_key_column: str | None = None):
         # --- Part 1: Find and Sample Exact Duplicates ---
         exact_duplicates_query = f"""
         WITH RowCounts AS (
-            SELECT *, COUNT(*) OVER (PARTITION BY *) as row_count
+            SELECT COLUMNS(*), COUNT(*) OVER (PARTITION BY COLUMNS(*)) as row_count
             FROM {table_name}
         )
-        SELECT * FROM RowCounts WHERE row_count > 1 LIMIT 10;
+        SELECT * EXCLUDE(row_count) FROM RowCounts WHERE row_count > 1 LIMIT 10;
         """
         exact_duplicates_sample_df = con.execute(exact_duplicates_query).fetchdf()
         
