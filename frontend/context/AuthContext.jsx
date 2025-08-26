@@ -1,3 +1,4 @@
+/* eslint-disable no-unused-vars */
 /* eslint-disable react-refresh/only-export-components */
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 
@@ -17,38 +18,45 @@ export const AuthProvider = ({ children }) => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [loading, setLoading] = useState(true);
 
+  // This effect only runs once on app load to check for a persisted session
   useEffect(() => {
     const token = localStorage.getItem('access_token');
-    const email = localStorage.getItem('user_email');
+    const storedUser = localStorage.getItem('user');
     
-    if (token && email) {
-      setSession({ access_token: token });
-      setUser({ email });
-      setIsAuthenticated(true);
+    if (token && storedUser) {
+      try {
+        const parsedUser = JSON.parse(storedUser);
+        setSession({ access_token: token });
+        setUser(parsedUser); // Set the full user object
+        setIsAuthenticated(true);
+      } catch (e) {
+        // If parsing fails, clear out the bad data
+        localStorage.clear();
+      }
     }
     setLoading(false);
   }, []);
 
-  const login = (email, accessToken) => {
-    localStorage.setItem('access_token', accessToken);
-    localStorage.setItem('user_email', email);
+  // The login function now correctly handles the full user object
+  const login = (sessionData) => {
+    const { access_token, user } = sessionData;
+    localStorage.setItem('access_token', access_token);
+    localStorage.setItem('user', JSON.stringify(user)); // Store the full user object as a string
     
-    setSession({ access_token: accessToken });
-    setUser({ email });
+    setSession({ access_token });
+    setUser(user); // Set the full user object in state
     setIsAuthenticated(true);
   };
 
-  // Wrap logout in useCallback to stabilize its reference
   const logout = useCallback(() => {
     localStorage.removeItem('access_token');
-    localStorage.removeItem('user_email');
+    localStorage.removeItem('user');
     
     setUser(null);
     setSession(null);
     setIsAuthenticated(false);
   }, []);
 
-  // Wrap makeAuthenticatedRequest in useCallback
   const makeAuthenticatedRequest = useCallback(async (url, options = {}) => {
     const token = session?.access_token || localStorage.getItem('access_token');
     
@@ -71,7 +79,7 @@ export const AuthProvider = ({ children }) => {
     }
 
     return response;
-  }, [session, logout]); // Add session and logout as dependencies
+  }, [session, logout]);
 
   const value = {
     user,

@@ -5,16 +5,15 @@ import DataTable from '../components/DataTable';
 import Accordion from '../components/Accordion';
 import AutoCleanStep from '../components/cleaning-steps/AutoCleanStep';
 import FindDuplicatesStep from '../components/cleaning-steps/FindDuplicatesStep';
+import HandleDuplicatesStep from '../components/cleaning-steps/HandleDuplicatesStep';
 
 const DataCleaningView = ({ isLoading: isProjectLoading }) => {
-  // Read the entire session state from the context
   const { currentSession, updateCurrentSession } = useProjects();
 
   if (isProjectLoading) {
     return <div className="flex items-center justify-center h-full"><Loader2 className="h-8 w-8 animate-spin text-[#F5D742]" /></div>;
   }
 
-  // The initial welcome message
   if (!currentSession) {
     return (
       <div className="text-center">
@@ -30,7 +29,6 @@ const DataCleaningView = ({ isLoading: isProjectLoading }) => {
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 h-full">
-      {/* Left Panel: Agent Chat & Actions */}
       <div className="bg-[#2A2828] rounded-lg p-6 border border-[#3F3F3F] flex flex-col">
         <h2 className="text-xl font-bold text-[#F5D742] mb-4">Agent Workspace</h2>
         <div className="flex-grow space-y-4 overflow-y-auto pr-2">
@@ -58,7 +56,6 @@ const DataCleaningView = ({ isLoading: isProjectLoading }) => {
           ))}
         </div>
         
-        {/* Render the current step's component */}
         {actionStep === 'initial' && (
           <AutoCleanStep 
             onComplete={(newProfile, newMessages) => {
@@ -83,15 +80,26 @@ const DataCleaningView = ({ isLoading: isProjectLoading }) => {
         )}
 
         {actionStep === 'handle_duplicates' && (
+           <HandleDuplicatesStep
+             onComplete={(newProfile, newMessages) => {
+                updateCurrentSession({
+                  profile: newProfile || profile, 
+                  agentMessages: [...agentMessages, ...newMessages],
+                  actionStep: 'suggest_types',
+                });
+             }}
+           />
+        )}
+
+        {actionStep === 'suggest_types' && (
            <div className="mt-6 pt-4 border-t border-[#3F3F3F]">
              <button className="w-full bg-[#F5D742] text-[#1E1C1C] font-semibold py-2 px-4 rounded-lg hover:bg-[#E0C53B]">
-               Next: Handle Duplicates
+               Next: Suggest Data Types
              </button>
            </div>
         )}
       </div>
 
-      {/* Right Panel: Data Display */}
       <div className="overflow-y-auto">
         <Accordion title="Schema" defaultOpen={true}>
           <DataTable columns={schemaColumns} data={profile.schema} />

@@ -1,5 +1,5 @@
 /* eslint-disable react-refresh/only-export-components */
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import { useAuth } from './AuthContext';
 
 const ProjectContext = createContext();
@@ -12,33 +12,34 @@ export const useProjects = () => {
   return context;
 };
 
-// Helper function to get the user-specific storage key
 const getStorageKey = (userId) => `insightduck_sessions_${userId}`;
 
 export const ProjectProvider = ({ children }) => {
   const { user } = useAuth();
   const [projectSessions, setProjectSessions] = useState({});
   const [activeProjectId, setActiveProjectId] = useState(null);
-  const [allProjects, setAllProjects] = useState([]); // For the sidebar list
+  const [allProjects, setAllProjects] = useState([]);
 
-  // Load sessions from localStorage when the user is identified
   useEffect(() => {
-    if (user?.id) {
-      const storedSessions = localStorage.getItem(getStorageKey(user.id));
-      if (storedSessions) {
-        setProjectSessions(JSON.parse(storedSessions));
+    if (user && user.id) {
+      try {
+        const storedSessions = localStorage.getItem(getStorageKey(user.id));
+        if (storedSessions) {
+          setProjectSessions(JSON.parse(storedSessions));
+        }
+      } catch (error) {
+        console.error("Failed to parse project sessions from localStorage", error);
+        setProjectSessions({});
       }
     }
   }, [user]);
 
-  // Save sessions to localStorage whenever they change
   useEffect(() => {
-    if (user?.id) {
+    if (user && user.id && Object.keys(projectSessions).length > 0) {
       localStorage.setItem(getStorageKey(user.id), JSON.stringify(projectSessions));
     }
   }, [projectSessions, user]);
 
-  // Function to set the active project and initialize its session if it doesn't exist
   const setActiveProject = useCallback((projectData) => {
     if (!projectData) {
       setActiveProjectId(null);
@@ -49,29 +50,21 @@ export const ProjectProvider = ({ children }) => {
     setActiveProjectId(project_id);
 
     setProjectSessions(prev => {
-      // If a session for this project doesn't exist, create one
-      if (!prev[project_id]) {
-        return {
-          ...prev,
-          [project_id]: {
-            profile,
-            agentMessages: [],
-            actionStep: 'initial',
-          }
-        };
-      }
-      // If it exists, just update the profile data
+      const existingSession = prev[project_id] || {};
+      // This is the fix: We merge the new profile with the existing session,
+      // but we ONLY initialize the step/messages if the session truly doesn't exist yet.
+      // When re-selecting a project, this will preserve the saved state.
       return {
         ...prev,
         [project_id]: {
-          ...prev[project_id],
           profile,
+          agentMessages: existingSession.agentMessages || [],
+          actionStep: existingSession.actionStep || 'initial',
         }
       };
     });
   }, []);
 
-  // Function for step components to update the current session
   const updateCurrentSession = useCallback((updates) => {
     if (!activeProjectId) return;
 
@@ -84,15 +77,14 @@ export const ProjectProvider = ({ children }) => {
     }));
   }, [activeProjectId]);
 
-  const value = {
+  const value = useMemo(() => ({
     allProjects,
     setAllProjects,
     activeProjectId,
     setActiveProject,
-    // Provide the current session's data directly
     currentSession: activeProjectId ? projectSessions[activeProjectId] : null,
     updateCurrentSession,
-  };
+  }), [allProjects, activeProjectId, projectSessions, setActiveProject, updateCurrentSession]);
 
   return (
     <ProjectContext.Provider value={value}>

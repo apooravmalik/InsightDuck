@@ -3,7 +3,7 @@ import { Eye, EyeOff, Mail, Lock } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import logo from '../assets/id-logo.png';
-import { API_URL } from '../config/config.js';
+import { API_URL } from '../config/config';
 
 const AuthPage = () => {
   const { login } = useAuth();
@@ -51,12 +51,17 @@ const AuthPage = () => {
       const data = await response.json();
 
       if (response.ok) {
-        const accessToken = data.session?.access_token;
-        if (accessToken) {
-          login(formData.email, accessToken);
-          navigate('/dashboard');
+        if (isLogin) {
+          if (data.session) {
+            login(data.session); // Pass the entire session object
+            navigate('/dashboard');
+          } else {
+            setError('Authentication successful but no session received');
+          }
         } else {
-          setError('Authentication successful but no access token received');
+          // After registration, prompt user to sign in
+          setIsLogin(true);
+          setError('Registration successful! Please sign in.');
         }
       } else {
         setError(data.detail || data.message || 'Authentication failed');
@@ -76,7 +81,6 @@ const AuthPage = () => {
   };
 
   return (
-    // Set the background and text color for the page here
     <div className="min-h-screen bg-[#1E1C1C] text-[#E8E8E8] flex items-center justify-center p-4">
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
