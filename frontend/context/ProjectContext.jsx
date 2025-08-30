@@ -40,6 +40,10 @@ export const ProjectProvider = ({ children }) => {
     }
   }, [projectSessions, user]);
 
+  const addProject = useCallback((newProject) => {
+    setAllProjects(prevProjects => [newProject, ...prevProjects]);
+  }, []);
+
   const setActiveProject = useCallback((projectData) => {
     if (!projectData) {
       setActiveProjectId(null);
@@ -51,9 +55,6 @@ export const ProjectProvider = ({ children }) => {
 
     setProjectSessions(prev => {
       const existingSession = prev[project_id] || {};
-      // This is the fix: We merge the new profile with the existing session,
-      // but we ONLY initialize the step/messages if the session truly doesn't exist yet.
-      // When re-selecting a project, this will preserve the saved state.
       return {
         ...prev,
         [project_id]: {
@@ -82,9 +83,10 @@ export const ProjectProvider = ({ children }) => {
     setAllProjects,
     activeProjectId,
     setActiveProject,
+    addProject, // Add the new function here
     currentSession: activeProjectId ? projectSessions[activeProjectId] : null,
     updateCurrentSession,
-  }), [allProjects, activeProjectId, projectSessions, setActiveProject, updateCurrentSession]);
+  }), [allProjects, setAllProjects, activeProjectId, setActiveProject, addProject, updateCurrentSession, projectSessions]);
 
   return (
     <ProjectContext.Provider value={value}>
