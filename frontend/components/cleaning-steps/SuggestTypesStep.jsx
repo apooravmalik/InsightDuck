@@ -4,13 +4,13 @@ import { useProjects } from '../../context/ProjectContext';
 import { Loader2 } from 'lucide-react';
 import { API_URL } from '../../config/config';
 
-const SuggestDataTypesStep = ({ onComplete }) => {
+const SuggestTypesStep = ({ onComplete }) => {
   const { makeAuthenticatedRequest } = useAuth();
   const { activeProjectId } = useProjects();
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState('');
 
-  const handleSuggestDataTypes = async () => {
+  const handleSuggestTypes = async () => {
     if (!activeProjectId) return;
 
     setIsProcessing(true);
@@ -24,22 +24,26 @@ const SuggestDataTypesStep = ({ onComplete }) => {
       if (!response.ok) {
         throw new Error(data.detail || 'Failed to suggest data types');
       }
-
-      // Format the message to include suggestions
-      let message;
+      
+      let newMessages = [];
       if (data.suggestions && data.suggestions.length > 0) {
-        const suggestionLines = data.suggestions.map(
-          (s) => `- For column "${s.column_name}", I suggest changing the type from ${s.current_type} to ${s.suggested_type} (confidence: ${s.confidence * 100}%)`
-        );
-        message = `I've analyzed the data types and have the following suggestions:\n${suggestionLines.join('\n')}`;
+        // Create a message with type 'suggestions' as expected by DataCleaningView
+        newMessages.push({
+          type: 'suggestions',
+          title: "I've analyzed the data types and have the following suggestions:",
+          content: data.suggestions, // The content is the array of suggestion objects
+        });
+        console.log("Type suggestions:", data.suggestions);
       } else {
-        message = "I didn't find any columns that I could confidently suggest a type conversion for.";
+        newMessages.push({
+          type: 'info',
+          content: "I didn't find any columns that I could confidently suggest a type conversion for.",
+        });
+        console.log("No type suggestions available.");
       }
 
-      const newMessages = [{ type: 'info', content: message }];
-
-      // Pass the suggestions themselves to the parent for the next step
-      onComplete(newMessages, data.suggestions);
+      // Call onComplete with the correct argument order: (suggestions, newMessages)
+      onComplete(data.suggestions, newMessages);
 
     } catch (err) {
       setError(err.message);
@@ -51,7 +55,7 @@ const SuggestDataTypesStep = ({ onComplete }) => {
   return (
     <div className="mt-6 pt-4 border-t border-[#3F3F3F]">
       <button
-        onClick={handleSuggestDataTypes}
+        onClick={handleSuggestTypes}
         disabled={isProcessing}
         className="w-full bg-[#F5D742] text-[#1E1C1C] font-semibold py-2 px-4 rounded-lg hover:bg-[#E0C53B] disabled:opacity-50 flex items-center justify-center transition-colors"
       >
@@ -63,4 +67,4 @@ const SuggestDataTypesStep = ({ onComplete }) => {
   );
 };
 
-export default SuggestDataTypesStep;
+export default SuggestTypesStep;
