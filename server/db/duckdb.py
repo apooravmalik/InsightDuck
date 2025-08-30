@@ -392,3 +392,20 @@ def export_table_to_csv_string(table_name: str):
 
     except Exception as e:
         raise RuntimeError(f"Failed to export table to CSV: {e}")
+    
+#---- Cleanup function ----
+def clear_all_project_tables():
+    """
+    Drops all tables that start with 'project_' to clean the database.
+    """
+    try:
+        tables_to_drop = con.execute("SHOW TABLES;").fetchdf()
+        dropped_count = 0
+        for table_name in tables_to_drop['name']:
+            if table_name.startswith('project_'):
+                con.execute(f'DROP TABLE "{table_name}";')
+                print(f"✅ Dropped table: {table_name}")
+                dropped_count += 1
+        return {"status": "success", "message": f"Successfully dropped {dropped_count} project tables."}
+    except Exception as e:
+        raise RuntimeError(f"Failed during database cleanup: {e}")

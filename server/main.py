@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr
 from gotrue.errors import AuthApiError
 from config.supabaseClient import supabase
-from db.duckdb import con, get_data_profile, suggest_type_conversions, convert_column_types, get_all_tables, auto_clean_and_prepare, handle_duplicates, impute_null_values, get_data_profile, find_duplicates, drop_columns, export_table_to_csv_string
+from db.duckdb import con, get_data_profile, suggest_type_conversions, convert_column_types, get_all_tables, auto_clean_and_prepare, handle_duplicates, impute_null_values, get_data_profile, find_duplicates, drop_columns, export_table_to_csv_string, clear_all_project_tables
 from supabase.lib.client_options import ClientOptions
 from auth.auth import get_current_user
 import pandas as pd
@@ -416,3 +416,22 @@ def export_project_csv(
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"An error occurred during CSV export: {str(e)}")
+    
+# --- Admin Endpoint to Clear All Project Tables [Protected]---
+    
+@app.post("/admin/clear-database/", status_code=status.HTTP_200_OK)
+def clear_database(current_user: dict = Depends(get_current_user)):
+    """
+    [Admin] Clears all 'project_' tables from the DuckDB database.
+    This is a protected endpoint.
+    """
+    try:
+        # For now, we allow any authenticated user to do this.
+        # In a production app, you would add a role check:
+        # if current_user.get('role') != 'admin':
+        #     raise HTTPException(status_code=403, detail="Not authorized")
+        
+        result = clear_all_project_tables()
+        return {"detail": result.get("message")}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

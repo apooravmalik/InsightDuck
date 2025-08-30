@@ -77,16 +77,21 @@ export const ProjectProvider = ({ children }) => {
       }
     }));
   }, [activeProjectId]);
+  
+  const clearActiveProject = useCallback(() => {
+      setActiveProjectId(null);
+  }, []);
 
   const value = useMemo(() => ({
     allProjects,
     setAllProjects,
     activeProjectId,
     setActiveProject,
-    addProject, // Add the new function here
+    addProject,
+    clearActiveProject,
     currentSession: activeProjectId ? projectSessions[activeProjectId] : null,
     updateCurrentSession,
-  }), [allProjects, setAllProjects, activeProjectId, setActiveProject, addProject, updateCurrentSession, projectSessions]);
+  }), [allProjects, setAllProjects, activeProjectId, projectSessions, setActiveProject, addProject, updateCurrentSession, clearActiveProject]);
 
   return (
     <ProjectContext.Provider value={value}>

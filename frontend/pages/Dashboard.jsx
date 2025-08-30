@@ -8,17 +8,22 @@ import EdaView from '../views/EdaView';
 import { useProjects } from '../context/ProjectContext';
 import { useAuth } from '../context/AuthContext';
 import { API_URL } from '../config/config';
+import { AlertTriangle } from 'lucide-react'; // Import the icon
 
 const Dashboard = () => {
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
   const [isSessionModalOpen, setIsSessionModalOpen] = useState(false);
   const [activeTab, setActiveTab] = useState('Data Cleaning');
   const [isProjectLoading, setIsProjectLoading] = useState(false);
-  const { setActiveProject } = useProjects();
+  const [projectError, setProjectError] = useState(''); // State to hold project loading errors
+  const { setActiveProject, clearActiveProject } = useProjects(); // Get clearActiveProject
   const { makeAuthenticatedRequest } = useAuth();
 
   const handleSelectProject = useCallback(async (projectId) => {
     setIsProjectLoading(true);
+    setProjectError(''); // Clear previous errors
+    clearActiveProject(); // Clear the current session view
+    
     try {
       const response = await makeAuthenticatedRequest(`${API_URL}/get-project-status/`, {
         method: 'POST',
@@ -28,18 +33,23 @@ const Dashboard = () => {
         setIsSessionModalOpen(true);
         return;
       }
+      if (response.status === 404) {
+        // This is the new logic to handle cleared projects
+        setProjectError("Sorry, you were too late! This project's data has been cleared from the server to save space. Please upload a new one.");
+        return;
+      }
       if (!response.ok) {
         throw new Error('Failed to load project details.');
       }
       const data = await response.json();
-      // setActiveProject now initializes or updates the session
       setActiveProject(data);
     } catch (error) {
       console.error("Error fetching project:", error);
+      setProjectError('An unexpected error occurred while loading the project.');
     } finally {
       setIsProjectLoading(false);
     }
-  }, [makeAuthenticatedRequest, setActiveProject]);
+  }, [makeAuthenticatedRequest, setActiveProject, clearActiveProject]);
 
   const handleSessionExpired = useCallback(() => {
     setIsSessionModalOpen(true);
@@ -56,8 +66,17 @@ const Dashboard = () => {
             onSessionExpired={handleSessionExpired}
           />
           <main className="flex-grow p-8 overflow-y-auto">
-            {activeTab === 'Data Cleaning' && <DataCleaningView isLoading={isProjectLoading} />}
-            {activeTab === 'EDA' && <EdaView />}
+            {projectError ? (
+                <div className="text-center text-yellow-400 flex flex-col items-center justify-center h-full">
+                    <AlertTriangle className="h-12 w-12 mb-4" />
+                    <p className="text-lg">{projectError}</p>
+                </div>
+            ) : (
+                <>
+                    {activeTab === 'Data Cleaning' && <DataCleaningView isLoading={isProjectLoading} />}
+                    {activeTab === 'EDA' && <EdaView />}
+                </>
+            )}
           </main>
         </div>
       </div>
