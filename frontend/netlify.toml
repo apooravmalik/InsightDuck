@@ -5,3 +5,4 @@
 
 [build.processing.secrets]
   omit_keys = ["VITE_API_URL"]
+  omit_paths = ["dist/assets/*.js"]
