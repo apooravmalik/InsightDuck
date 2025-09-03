@@ -5,35 +5,54 @@ import { Check, X, ChevronsUpDown } from 'lucide-react';
 // A reusable dropdown component for selecting data types
 const TypeSelector = ({ selected, onSelect }) => {
   const [isOpen, setIsOpen] = useState(false);
+  const buttonRef = React.useRef(null);
+  const [buttonRect, setButtonRect] = useState(null);
   const types = ["DOUBLE", "INTEGER", "DATE", "VARCHAR"];
+
+  const handleToggle = () => {
+    if (!isOpen && buttonRef.current) {
+      setButtonRect(buttonRef.current.getBoundingClientRect());
+    }
+    setIsOpen(!isOpen);
+  };
 
   return (
     <div className="relative w-32">
       <button
-        onClick={() => setIsOpen(!isOpen)}
+        ref={buttonRef}
+        onClick={handleToggle}
         className="w-full bg-[#1E1C1C] border border-[#3F3F3F] rounded-md px-3 py-1 text-left flex items-center justify-between text-sm"
       >
         <span>{selected}</span>
         <ChevronsUpDown className="h-4 w-4 text-gray-400" />
       </button>
-      {isOpen && (
-        <div 
-          className="absolute z-10 top-full mt-1 w-full bg-[#2A2828] border border-[#3F3F3F] rounded-md shadow-lg"
-          onMouseLeave={() => setIsOpen(false)}
-        >
-          {types.map(type => (
-            <button
-              key={type}
-              onClick={() => {
-                onSelect(type);
-                setIsOpen(false);
-              }}
-              className="w-full text-left px-3 py-1.5 text-sm hover:bg-[#3F3F3F]"
-            >
-              {type}
-            </button>
-          ))}
-        </div>
+      {isOpen && buttonRect && (
+        <>
+          <div 
+            className="fixed inset-0 z-[9998]" 
+            onClick={() => setIsOpen(false)}
+          />
+          <div 
+            className="fixed z-[9999] w-32 bg-[#2A2828] border border-[#3F3F3F] rounded-md shadow-lg"
+            style={{
+              top: buttonRect.bottom + window.scrollY + 4,
+              left: buttonRect.left + window.scrollX,
+            }}
+          >
+            {types.map(type => (
+              <button
+                key={type}
+                onClick={() => {
+                  onSelect(type);
+                  setIsOpen(false);
+                }}
+                className="w-full text-left px-3 py-1.5 text-sm hover:bg-[#3F3F3F] first:rounded-t-md last:rounded-b-md"
+              >
+                {type}
+              </button>
+            ))}
+          </div>
+        </>
       )}
     </div>
   );
