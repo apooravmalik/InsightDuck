@@ -2,6 +2,8 @@
 import duckdb
 import os
 import re
+import pandas as pd
+import numpy as np
 
 # --- Persistent DuckDB Connection ---
 # Define the path for the database file
@@ -38,21 +40,31 @@ def get_data_profile(table_name: str):
         total_rows = con.execute(f"SELECT COUNT(*) FROM {table_name};").fetchone()[0]
         total_columns = len(schema)
 
-        # 3. Calculate null counts for columns that have them (efficiently)
-        null_counts_clauses = [f"SUM(CASE WHEN \"{col}\" IS NULL THEN 1 ELSE 0 END) AS \"{col}\"" for col in column_names]
-        null_counts_query = f"SELECT {', '.join(null_counts_clauses)} FROM {table_name};"
-        null_counts_result = con.execute(null_counts_query).fetchdf()
-        null_counts = {col: int(null_counts_result[col][0]) for col in null_counts_result.columns if null_counts_result[col][0] > 0}
+        # 3. Calculate null counts safely
+        null_counts = {}
+        if column_names:
+            null_counts_clauses = [f"SUM(CASE WHEN \"{col}\" IS NULL THEN 1 ELSE 0 END) AS \"{col}\"" for col in column_names]
+            null_counts_query = f"SELECT {', '.join(null_counts_clauses)} FROM {table_name};"
+            null_counts_result = con.execute(null_counts_query).fetchdf()
 
+            if not null_counts_result.empty:
+                for col in null_counts_result.columns:
+                    value = null_counts_result[col][0]
+                    if pd.notna(value) and value > 0:
+                        null_counts[col] = int(value)
+
+        # 4. Calculate exact duplicates count
         duplicates_count_query = f"""
-        SELECT 
-            (SELECT COUNT(*) FROM {table_name}) - 
+        SELECT
+            (SELECT COUNT(*) FROM {table_name}) -
             (SELECT COUNT(*) FROM (SELECT DISTINCT * FROM {table_name}))
         """
         duplicates_count = con.execute(duplicates_count_query).fetchone()[0]
 
-        # 5. Get a sample preview of the data
-        sample_preview = con.execute(f"SELECT * FROM {table_name} LIMIT 5;").fetchdf().to_dict('records')
+        # 5. Get a sample preview and clean it for JSON
+        sample_preview_df = con.execute(f"SELECT * FROM {table_name} LIMIT 5;").fetchdf()
+        # Replace non-JSON compliant values (NaN, Infinity) with None
+        sample_preview = sample_preview_df.replace({np.nan: None, np.inf: None, -np.inf: None}).to_dict('records')
 
         # 6. Assemble the final profile object
         profile = {
@@ -139,7 +151,7 @@ def convert_column_types(table_name: str, conversions: list[dict]):
 
                 # Step 5: Replace the original column
                 con.execute(f"ALTER TABLE {table_name} DROP COLUMN {safe_col_name};")
-                con.execute(f"ALTER TABLE {table_name} RENAME COLUMN {temp_col_name} TO {safe_col_name};")
+                con.execute(f'ALTER TABLE {table_name} RENAME COLUMN {temp_col_name} TO {safe_col_name};')
                 
                 report.append({
                     "column_name": col,
