@@ -1,26 +1,28 @@
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from '../context/AuthContext';
-import { ProjectProvider } from '../context/ProjectContext'; // 1. Import ProjectProvider
+import { ProjectProvider } from '../context/ProjectContext';
 import AuthPage from '../pages/AuthPage';
 import Dashboard from '../pages/Dashboard';
+import HomePage from '../pages/HomePage'; // ✅ Import HomePage
 
-// Protected Route Component (No changes needed)
+// Protected Route Component
 const ProtectedRoute = ({ children }) => {
   const { isAuthenticated } = useAuth();
   return isAuthenticated ? children : <Navigate to="/auth" replace />;
 };
 
-// Public Route Component (No changes needed)
+// Public Route Component
 const PublicRoute = ({ children }) => {
   const { isAuthenticated } = useAuth();
   return !isAuthenticated ? children : <Navigate to="/dashboard" replace />;
 };
 
-// AppRoutes Component (No changes needed)
+// AppRoutes Component
 const AppRoutes = () => {
   return (
     <Routes>
+      <Route path="/" element={<HomePage />} /> {/* ✅ Homepage at root */}
       <Route 
         path="/auth" 
         element={
@@ -37,7 +39,7 @@ const AppRoutes = () => {
           </ProtectedRoute>
         } 
       />
-      <Route path="/" element={<Navigate to="/auth" replace />} />
+      <Route path="*" element={<Navigate to="/" replace />} /> {/* ✅ Catch-all */}
     </Routes>
   );
 };
@@ -45,7 +47,6 @@ const AppRoutes = () => {
 const App = () => {
   return (
     <AuthProvider>
-      {/* 2. Wrap the Router with ProjectProvider */}
       <ProjectProvider>
         <Router>
           <AppRoutes />
