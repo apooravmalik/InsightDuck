@@ -12,6 +12,10 @@ import {
 import ctaLogo from "../assets/id-export-logo.png";
 import idLogo from "../assets/id-logo.png"; // Import your logo
 import { motion } from "framer-motion";
+import feature1Img from "/assets/Homepage-feature-1.png";
+import feature2Img from "/assets/Homepage-feature-4.jpg";
+import feature3Img from "/assets/Homepage-feature-3.png";
+import feature4Img from "/assets/Homepage-feature-5.png";
 
 const fadeInVariants = {
   hidden: { opacity: 0, y: 40 },
@@ -138,28 +142,28 @@ const features = [
     icon: Bot,
     description:
       "Instantly handle common data issues. From standardizing column names and trimming whitespace to unifying null values, our AI gets your data ready for analysis in seconds.",
-    imageUrl: "../assets/Homepage-feature-1.png",
+    imageUrl: feature1Img,
   },
   {
     title: "Impute Null Data",
     icon: Zap,
     description:
       "Handle missing data intelligently. InsightDuck can fill empty (NULL) values using various strategies like mean, median, or mode, ensuring your dataset is complete and ready for analysis.",
-    imageUrl: "../assets/Homepage-feature-4.jpg",
+    imageUrl: feature2Img,
   },
   {
     title: "Data Type Conversions",
     icon: Type,
     description:
       "Apply suggested type conversions with a single click. Our safe conversion process prevents data loss by flagging values that couldn't be converted, giving you full control.",
-    imageUrl: "../assets/Homepage-feature-3.png",
+    imageUrl: feature3Img,
   },
   {
     title: "Exploratory Data Analysis",
     icon: Scaling,
     description:
       "Coming soon! Unlock deeper insights with automated EDA. Visualize distributions, identify correlations, and understand your dataset's story without writing a single line of code.",
-    imageUrl: "../assets/Homepage-feature-5.png",
+    imageUrl: feature4Img,
   },
 ];
 
