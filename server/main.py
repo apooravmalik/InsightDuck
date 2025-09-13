@@ -290,10 +290,7 @@ def apply_type_conversions(
         
         return {
             "message": "Type conversions applied successfully.",
-            "new_profile_summary": {
-                "schema": new_profile_sample.get("schema"),
-                "sample_preview": new_profile_sample.get("sample_preview")
-            }
+            "new_profile_summary": new_profile_sample
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
