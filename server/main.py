@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr
 from gotrue.errors import AuthApiError
 from config.supabaseClient import supabase
-from db.duckdb import con, get_data_profile, suggest_type_conversions, convert_column_types, get_all_tables, auto_clean_and_prepare, handle_duplicates, impute_null_values, get_data_profile, find_duplicates, drop_columns, export_table_to_csv_string, clear_all_project_tables
+from db.duckdb import con, get_data_profile, suggest_type_conversions, convert_column_types, get_all_tables, auto_clean_and_prepare, handle_duplicates, impute_null_values, get_data_profile, find_duplicates, drop_columns, export_table_to_csv_string, clear_all_project_tables, get_llm_suggestions, get_chart_data
 from supabase.lib.client_options import ClientOptions
 from auth.auth import get_current_user
 import pandas as pd
@@ -63,6 +63,15 @@ class FindDuplicatesRequest(BaseModel):
 class DropColumnsRequest(BaseModel):
     project_id: int
     columns_to_drop: list[str]
+    
+class EdaRequest(BaseModel):
+    project_id: int
+
+class ChartDataRequest(BaseModel):
+    project_id: int
+    chart_type: str
+    x_axis: str
+    y_axis: str | None = None
 
 # --- API Endpoints ---
 
@@ -430,5 +439,40 @@ def clear_database(current_user: dict = Depends(get_current_user)):
         
         result = clear_all_project_tables()
         return {"detail": result.get("message")}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    
+@app.post("/suggest-llm-visualizations/")
+def suggest_eda_visualizations(
+    request_body: EdaRequest,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Generates EDA suggestions for a project using an LLM.
+    """
+    try:
+        table_name = f"project_{request_body.project_id}"
+        suggestions = get_llm_suggestions(table_name)
+        return {"suggestions": suggestions}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/get-chart-data/")
+def fetch_data_for_chart(
+    request_body: ChartDataRequest,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Fetches data formatted for a specific chart type.
+    """
+    try:
+        table_name = f"project_{request_body.project_id}"
+        chart_data = get_chart_data(
+            table_name, 
+            request_body.chart_type, 
+            request_body.x_axis, 
+            request_body.y_axis
+        )
+        return {"chart_data": chart_data}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

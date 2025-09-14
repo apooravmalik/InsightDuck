@@ -4,6 +4,9 @@ import os
 import re
 import pandas as pd
 import numpy as np
+import json
+from groq import Groq
+from config.config import GROQ_API_KEY
 
 # --- Persistent DuckDB Connection ---
 # Define the path for the database file
@@ -421,3 +424,80 @@ def clear_all_project_tables():
         return {"status": "success", "message": f"Successfully dropped {dropped_count} project tables."}
     except Exception as e:
         raise RuntimeError(f"Failed during database cleanup: {e}")
+    
+#--- EDA Functions ---
+
+def get_llm_suggestions(table_name: str):
+    """
+    Generates EDA chart suggestions by calling the Groq LLM.
+    """
+    if not GROQ_API_KEY:
+        raise RuntimeError("GROQ_API_KEY is not set in the environment.")
+
+    try:
+        client = Groq(api_key=GROQ_API_KEY)
+
+        schema_df = con.execute(f"DESCRIBE {table_name};").fetchdf()
+        schema = schema_df.to_dict('records')
+        
+        sample_data_df = con.execute(f"SELECT * FROM {table_name} LIMIT 5;").fetchdf()
+        sample_data = sample_data_df.to_dict('records')
+        
+        prompt = f"""
+        You are an expert data analyst. Based on the following table schema and data sample, 
+        provide 4-5 diverse chart suggestions in a valid JSON format.
+
+        **Table Schema:**
+        {json.dumps(schema, indent=2)}
+
+        **Data Sample (first 5 rows):**
+        {json.dumps(sample_data, indent=2)}
+
+        **Instructions:**
+        1.  Analyze the data types and column names to understand the data.
+        2.  Suggest varied chart types: bar_chart, histogram, scatter_plot.
+        3.  Provide a concise `title` and a brief `description` for each chart.
+        4.  Specify `chart_type` and `parameters` (`x_axis`, `y_axis`).
+        5.  The entire output MUST be a single JSON object with a key "suggestions" 
+            containing an array of chart objects. Do not include any text before or after the JSON.
+        """
+
+        chat_completion = client.chat.completions.create(
+            messages=[{"role": "user", "content": prompt}],
+            model="llama-3.1-8b-instant",
+            temperature=0.4,
+            response_format={"type": "json_object"},
+        )
+        
+        response_content = chat_completion.choices[0].message.content
+        suggestions = json.loads(response_content)
+        
+        return suggestions.get("suggestions", [])
+
+    except Exception as e:
+        raise RuntimeError(f"Failed to get LLM suggestions: {e}")
+
+def get_chart_data(table_name: str, chart_type: str, x_axis: str, y_axis: str | None = None):
+    """
+    Fetches data from DuckDB formatted for a specific chart type.
+    """
+    try:
+        safe_x_axis = f'"{x_axis.replace("`", "").replace(";", "")}"'
+        safe_y_axis = f'"{y_axis.replace("`", "").replace(";", "")}"' if y_axis else None
+
+        if chart_type in ['histogram', 'bar_chart']:
+            query = f'SELECT {safe_x_axis}, COUNT(*) AS count FROM {table_name} GROUP BY {safe_x_axis} ORDER BY count DESC LIMIT 50;'
+            chart_data_df = con.execute(query).fetchdf()
+            return chart_data_df.to_dict('records')
+            
+        elif chart_type == 'scatter_plot' and safe_y_axis:
+            total_rows = con.execute(f"SELECT COUNT(*) FROM {table_name};").fetchone()[0]
+            limit_clause = "USING SAMPLE 1000 ROWS" if total_rows > 1000 else ""
+            query = f'SELECT {safe_x_axis}, {safe_y_axis} FROM {table_name} {limit_clause};'
+            chart_data_df = con.execute(query).fetchdf()
+            chart_data_df.rename(columns={x_axis: "x", y_axis: "y"}, inplace=True)
+            return chart_data_df.to_dict('records')
+        else:
+            return []
+    except Exception as e:
+        raise RuntimeError(f"Failed to fetch chart data: {e}")
