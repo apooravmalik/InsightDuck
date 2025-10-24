@@ -10,13 +10,11 @@ import {
 } from "recharts";
 
 const BarChart = ({ data, xAxis, yAxis, title }) => {
-  // Rename keys in data array to be 'x' and 'y' for standardization
-  const transformedData = data.map((item) => ({
-    x: item[xAxis],
-    y: item[yAxis],
-  }));
+  // FIX: The backend already formats the data as [{x: value, y: count}].
+  // The transformation logic was unnecessarily mapping keys that didn't exist in the data.
+  const chartData = data;
 
-  if (!data || data.length === 0) {
+  if (!chartData || chartData.length === 0) {
     return (
       <div className="text-center text-gray-500 py-10">
         No data available for this chart.
@@ -28,7 +26,7 @@ const BarChart = ({ data, xAxis, yAxis, title }) => {
     <div className="w-full h-full">
       <ResponsiveContainer width="100%" height={300}>
         <RechartsBarChart
-          data={transformedData}
+          data={chartData} // Use the corrected data object
           margin={{
             top: 5,
             right: 5,
@@ -38,7 +36,7 @@ const BarChart = ({ data, xAxis, yAxis, title }) => {
         >
           <CartesianGrid strokeDasharray="3 3" stroke="#3F3F3F" />
           <XAxis
-            dataKey="x"
+            dataKey="x" // Use the standardized key 'x'
             stroke="#A1A1A1"
             tick={{ fontSize: 10 }}
             angle={-20}
@@ -54,7 +52,7 @@ const BarChart = ({ data, xAxis, yAxis, title }) => {
               color: "#E8E8E8",
             }}
           />
-          <Bar dataKey="y" fill="#F5D742" />
+          <Bar dataKey="y" fill="#F5D742" /> // Use the standardized key 'y'
         </RechartsBarChart>
       </ResponsiveContainer>
     </div>
