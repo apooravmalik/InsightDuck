@@ -21,16 +21,22 @@ const VisualizationCard = ({
   chartData,
   isLoading,
 }) => {
-  // Determine the component and props
   const { chart_type, title, description, parameters } = suggestion;
   const { x_axis, y_axis } = parameters;
 
+  // Track if we've already initiated a fetch for this chart
+  const [hasFetched, setHasFetched] = React.useState(false);
+
   useEffect(() => {
-    // Fetch data when component mounts or suggestion changes
-    if (!chartData) {
+    // Only fetch once when component mounts and we don't have data
+    // chartData check is for memoized data (if already in chartDataState)
+    // hasFetched prevents re-fetching on re-renders after initial mount
+    // isLoading prevents triggering a fetch if one is already in progress
+    if (!chartData && !hasFetched && !isLoading) {
+      setHasFetched(true);
       fetchChartData(suggestion);
     }
-  }, [suggestion, fetchChartData, chartData]);
+  }, []); // Empty dependency array - only run once on mount
 
   const renderChart = () => {
     if (isLoading) {
@@ -45,7 +51,10 @@ const VisualizationCard = ({
     if (!chartData || chartData.length === 0) {
       return (
         <div className="text-center text-gray-500 py-10">
-          Chart data not found or is empty.
+          <p>No data available for this visualization.</p>
+          <p className="text-xs mt-2">
+            The column may not have enough valid values after cleaning.
+          </p>
         </div>
       );
     }
@@ -177,7 +186,12 @@ const EdaView = () => {
       const chartId = `${suggestion.chart_type}-${
         suggestion.parameters.x_axis
       }-${suggestion.parameters.y_axis || "null"}`;
-      if (chartDataState[chartId] || loadingChartId === chartId) return;
+
+      // Check if we already have data or are currently loading
+      // This is the primary fix in EdaView to prevent unnecessary requests
+      if (chartDataState[chartId] || loadingChartId === chartId) {
+        return;
+      }
 
       setLoadingChartId(chartId);
       try {
@@ -201,15 +215,17 @@ const EdaView = () => {
           );
         }
 
+        // Store the data (even if empty) to prevent repeated requests
         setChartDataState((prev) => ({
           ...prev,
-          [chartId]: data.chart_data,
+          [chartId]: data.chart_data || [],
         }));
       } catch (err) {
         console.error("Error fetching chart data:", err);
+        // Store empty array in state to prevent repeated failed requests
         setChartDataState((prev) => ({
           ...prev,
-          [chartId]: { error: err.message }, // Store error in state
+          [chartId]: [],
         }));
       } finally {
         setLoadingChartId(null);
