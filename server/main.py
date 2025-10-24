@@ -1,11 +1,11 @@
-# main.py
+# server/main.py
 from fastapi import FastAPI, HTTPException, status, UploadFile, File, Depends
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr
 from gotrue.errors import AuthApiError
 from config.supabaseClient import supabase
-from db.duckdb import con, get_data_profile, suggest_type_conversions, convert_column_types, get_all_tables, auto_clean_and_prepare, handle_duplicates, impute_null_values, get_data_profile, find_duplicates, drop_columns, export_table_to_csv_string, clear_all_project_tables, get_llm_suggestions, get_chart_data
+from db.duckdb import con, get_data_profile, suggest_type_conversions, convert_column_types, get_all_tables, auto_clean_and_prepare, handle_duplicates, impute_null_values, get_data_profile, find_duplicates, drop_columns, export_table_to_csv_string, clear_all_project_tables, get_llm_suggestions, get_chart_data, generate_statistical_summary, detect_data_insights
 from supabase.lib.client_options import ClientOptions
 from auth.auth import get_current_user
 import pandas as pd
@@ -66,6 +66,24 @@ class DropColumnsRequest(BaseModel):
     
 class EdaRequest(BaseModel):
     project_id: int
+
+# NEW: Pydantic models for EDA responses
+class EdaSummaryResponse(BaseModel):
+    numeric_summary: dict
+    categorical_summary: dict
+    correlation_matrix: list[dict]
+    total_rows: int
+    total_columns: int
+
+class EdaInsight(BaseModel):
+    type: str
+    severity: str
+    title: str
+    description: str
+    affected_columns: list[str]
+
+class EdaInsightsResponse(BaseModel):
+    insights: list[EdaInsight]
 
 class ChartDataRequest(BaseModel):
     project_id: int
@@ -442,6 +460,38 @@ def clear_database(current_user: dict = Depends(get_current_user)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     
+# --- NEW: EDA Endpoints ---
+
+@app.post("/eda-summary/")
+def get_eda_summary(
+    project: EdaRequest,
+    current_user: ClientOptions = Depends(get_current_user)
+) -> EdaSummaryResponse:
+    """
+    Retrieves the statistical summary and correlation matrix for the dataset.
+    """
+    try:
+        table_name = f"project_{project.project_id}"
+        summary = generate_statistical_summary(table_name)
+        return summary
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
+
+@app.post("/eda-insights/")
+def get_eda_insights(
+    project: EdaRequest,
+    current_user: ClientOptions = Depends(get_current_user)
+) -> EdaInsightsResponse:
+    """
+    Retrieves automated insights (outliers, high correlation, etc.) for the dataset.
+    """
+    try:
+        table_name = f"project_{project.project_id}"
+        insights_data = detect_data_insights(table_name)
+        return insights_data
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
+
 @app.post("/suggest-llm-visualizations/")
 def suggest_eda_visualizations(
     request_body: EdaRequest,
