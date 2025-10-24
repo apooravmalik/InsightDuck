@@ -1,13 +1,20 @@
 /* eslint-disable react-refresh/only-export-components */
-import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
-import { useAuth } from './AuthContext';
+import React, {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  useCallback,
+  useMemo,
+} from "react";
+import { useAuth } from "./AuthContext";
 
 const ProjectContext = createContext();
 
 export const useProjects = () => {
   const context = useContext(ProjectContext);
   if (!context) {
-    throw new Error('useProjects must be used within a ProjectProvider');
+    throw new Error("useProjects must be used within a ProjectProvider");
   }
   return context;
 };
@@ -28,7 +35,10 @@ export const ProjectProvider = ({ children }) => {
           setProjectSessions(JSON.parse(storedSessions));
         }
       } catch (error) {
-        console.error("Failed to parse project sessions from localStorage", error);
+        console.error(
+          "Failed to parse project sessions from localStorage",
+          error
+        );
         setProjectSessions({});
       }
     }
@@ -36,12 +46,15 @@ export const ProjectProvider = ({ children }) => {
 
   useEffect(() => {
     if (user && user.id && Object.keys(projectSessions).length > 0) {
-      localStorage.setItem(getStorageKey(user.id), JSON.stringify(projectSessions));
+      localStorage.setItem(
+        getStorageKey(user.id),
+        JSON.stringify(projectSessions)
+      );
     }
   }, [projectSessions, user]);
 
   const addProject = useCallback((newProject) => {
-    setAllProjects(prevProjects => [newProject, ...prevProjects]);
+    setAllProjects((prevProjects) => [newProject, ...prevProjects]);
   }, []);
 
   const setActiveProject = useCallback((projectData) => {
@@ -49,53 +62,68 @@ export const ProjectProvider = ({ children }) => {
       setActiveProjectId(null);
       return;
     }
-    
+
     const { project_id, profile } = projectData;
     setActiveProjectId(project_id);
 
-    setProjectSessions(prev => {
+    setProjectSessions((prev) => {
       const existingSession = prev[project_id] || {};
       return {
         ...prev,
         [project_id]: {
           profile,
           agentMessages: existingSession.agentMessages || [],
-          actionStep: existingSession.actionStep || 'initial',
-        }
+          actionStep: existingSession.actionStep || "initial",
+          // NEW: Initialize edaResults state
+          edaResults: existingSession.edaResults || null,
+        },
       };
     });
   }, []);
 
-  const updateCurrentSession = useCallback((updates) => {
-    if (!activeProjectId) return;
+  const updateCurrentSession = useCallback(
+    (updates) => {
+      if (!activeProjectId) return;
 
-    setProjectSessions(prev => ({
-      ...prev,
-      [activeProjectId]: {
-        ...prev[activeProjectId],
-        ...updates,
-      }
-    }));
-  }, [activeProjectId]);
-  
+      setProjectSessions((prev) => ({
+        ...prev,
+        [activeProjectId]: {
+          ...prev[activeProjectId],
+          ...updates,
+        },
+      }));
+    },
+    [activeProjectId]
+  );
+
   const clearActiveProject = useCallback(() => {
-      setActiveProjectId(null);
+    setActiveProjectId(null);
   }, []);
 
-  const value = useMemo(() => ({
-    allProjects,
-    setAllProjects,
-    activeProjectId,
-    setActiveProject,
-    addProject,
-    clearActiveProject,
-    currentSession: activeProjectId ? projectSessions[activeProjectId] : null,
-    updateCurrentSession,
-  }), [allProjects, setAllProjects, activeProjectId, projectSessions, setActiveProject, addProject, updateCurrentSession, clearActiveProject]);
+  const value = useMemo(
+    () => ({
+      allProjects,
+      setAllProjects,
+      activeProjectId,
+      setActiveProject,
+      addProject,
+      clearActiveProject,
+      currentSession: activeProjectId ? projectSessions[activeProjectId] : null,
+      updateCurrentSession,
+    }),
+    [
+      allProjects,
+      setAllProjects,
+      activeProjectId,
+      projectSessions,
+      setActiveProject,
+      addProject,
+      updateCurrentSession,
+      clearActiveProject,
+    ]
+  );
 
   return (
-    <ProjectContext.Provider value={value}>
-      {children}
-    </ProjectContext.Provider>
+    <ProjectContext.Provider value={value}>{children}</ProjectContext.Provider>
   );
 };

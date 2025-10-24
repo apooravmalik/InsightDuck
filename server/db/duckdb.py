@@ -7,6 +7,7 @@ import numpy as np
 import json
 from groq import Groq
 from config.config import GROQ_API_KEY
+from scipy.stats import iqr, pearsonr 
 
 # --- Persistent DuckDB Connection ---
 # Define the path for the database file
@@ -427,6 +428,142 @@ def clear_all_project_tables():
     
 #--- EDA Functions ---
 
+def generate_statistical_summary(table_name: str):
+    """
+    Generates a comprehensive statistical summary for the given table.
+    """
+    try:
+        df = con.table(table_name).to_df()
+        
+        numeric_cols = df.select_dtypes(include=np.number).columns.tolist()
+        categorical_cols = df.select_dtypes(include=['object', 'category']).columns.tolist()
+        
+        # 1. Numeric Summary
+        numeric_summary = {}
+        if numeric_cols:
+            desc_df = df[numeric_cols].describe(percentiles=[.25, .5, .75]).transpose()
+            # Replace non-JSON compliant values (NaN, Infinity) with None
+            numeric_summary = desc_df.replace({np.nan: None, np.inf: None, -np.inf: None}).to_dict('index')
+
+        # 2. Categorical Summary
+        categorical_summary = {}
+        for col in categorical_cols:
+            counts = df[col].value_counts(dropna=True)
+            total_count = counts.sum()
+            
+            # Convert keys to string for JSON serialization
+            top_5_frequencies = {str(k): v for k, v in counts.head(5).to_dict().items()}
+            
+            categorical_summary[col] = {
+                "unique_count": df[col].nunique(),
+                "mode": str(counts.index[0]) if not counts.empty else None,
+                "top_5_frequencies": top_5_frequencies
+            }
+            
+        # 3. Correlation Matrix
+        correlation_matrix = []
+        if len(numeric_cols) >= 2:
+            # Drop non-numeric for correlation calculation just in case
+            numeric_df = df[numeric_cols].apply(pd.to_numeric, errors='coerce')
+            corr_df = numeric_df.corr()
+            
+            for i, col1 in enumerate(numeric_cols):
+                for j, col2 in enumerate(numeric_cols):
+                    if i < j: # Upper triangle, excluding diagonal
+                        # Check if correlation value exists and is a number
+                        corr_val = corr_df.loc[col1, col2]
+                        if pd.notna(corr_val):
+                            correlation_matrix.append({
+                                "col1": col1,
+                                "col2": col2,
+                                "correlation": round(corr_val, 4)
+                            })
+
+        return {
+            "numeric_summary": numeric_summary,
+            "categorical_summary": categorical_summary,
+            "correlation_matrix": correlation_matrix,
+            "total_rows": len(df),
+            "total_columns": len(df.columns)
+        }
+    except Exception as e:
+        raise RuntimeError(f"Failed to generate statistical summary: {e}")
+
+def detect_data_insights(table_name: str):
+    """
+    Detects simple data insights like high correlation or distribution issues.
+    """
+    try:
+        summary = generate_statistical_summary(table_name)
+        df = con.table(table_name).to_df()
+        insights = []
+        
+        # Insight 1: High Correlation (Warning)
+        for corr in summary["correlation_matrix"]:
+            if abs(corr["correlation"]) >= 0.8:
+                 insights.append({
+                    "type": "correlation",
+                    "severity": "warning",
+                    "title": "High Feature Correlation",
+                    "description": f"Columns '{corr['col1']}' and '{corr['col2']}' are highly correlated ({corr['correlation']}). Consider removing one for modeling.",
+                    "affected_columns": [corr["col1"], corr["col2"]]
+                })
+        
+        # Insight 2: Potential Outliers (Warning)
+        numeric_cols = list(summary["numeric_summary"].keys())
+        for col in numeric_cols:
+            q1 = summary["numeric_summary"][col].get('25%')
+            q3 = summary["numeric_summary"][col].get('75%')
+            count = summary["numeric_summary"][col].get('count')
+            
+            if q1 is not None and q3 is not None and count:
+                q1 = float(q1)
+                q3 = float(q3)
+                iqr_val = q3 - q1
+                lower_bound = q1 - 1.5 * iqr_val
+                upper_bound = q3 + 1.5 * iqr_val
+                
+                # DuckDB query for outlier count
+                # Need to use a safe column name and handle nulls in query
+                safe_col_name = f'"{col}"'
+                outlier_query = f"""
+                SELECT COUNT(*) FROM {table_name} 
+                WHERE {safe_col_name} IS NOT NULL AND ({safe_col_name} < {lower_bound} OR {safe_col_name} > {upper_bound});
+                """
+                outlier_count = con.execute(outlier_query).fetchone()[0]
+                
+                if outlier_count > 0.01 * summary["total_rows"] and outlier_count > 5:
+                    insights.append({
+                        "type": "outlier",
+                        "severity": "warning",
+                        "title": "Potential Outliers Detected",
+                        "description": f"Column '{col}' has {outlier_count} values outside the typical 1.5*IQR range. Review with a Box Plot.",
+                        "affected_columns": [col]
+                    })
+        
+        # Insight 3: Imbalanced Categorical Data (Info)
+        for col, cat_sum in summary["categorical_summary"].items():
+            if cat_sum["mode"] is not None and cat_sum["top_5_frequencies"]:
+                # The first item in top_5_frequencies is the mode
+                mode_key = list(cat_sum["top_5_frequencies"].keys())[0]
+                mode_count = cat_sum["top_5_frequencies"][mode_key]
+                total = summary["total_rows"]
+                mode_percentage = mode_count / total
+                if mode_percentage > 0.9:
+                    insights.append({
+                        "type": "distribution",
+                        "severity": "info",
+                        "title": "Highly Imbalanced Feature",
+                        "description": f"Categorical column '{col}' is highly skewed, with the mode value ('{cat_sum['mode']}') making up {round(mode_percentage * 100)}% of the data. This might impact model performance.",
+                        "affected_columns": [col]
+                    })
+        
+        return {"insights": insights}
+
+    except Exception as e:
+        print(f"Error during insight detection: {e}")
+        return {"insights": []}
+
 def get_llm_suggestions(table_name: str):
     """
     Generates EDA chart suggestions by calling the Groq LLM.
@@ -482,22 +619,74 @@ def get_chart_data(table_name: str, chart_type: str, x_axis: str, y_axis: str | 
     Fetches data from DuckDB formatted for a specific chart type.
     """
     try:
+        # Sanitize column names before putting them into SQL
         safe_x_axis = f'"{x_axis.replace("`", "").replace(";", "")}"'
         safe_y_axis = f'"{y_axis.replace("`", "").replace(";", "")}"' if y_axis else None
 
         if chart_type in ['histogram', 'bar_chart']:
             query = f'SELECT {safe_x_axis}, COUNT(*) AS count FROM {table_name} GROUP BY {safe_x_axis} ORDER BY count DESC LIMIT 50;'
+            
+            # Execute and fetch the result
             chart_data_df = con.execute(query).fetchdf()
+            
+            # --- CRITICAL FIX 1: Explicitly check for None (though unlikely) and emptiness ---
+            if chart_data_df is None or chart_data_df.empty:
+                return [] 
+            
+            # Get the actual column name used by DuckDB, which is the first column.
+            if len(chart_data_df.columns) > 0:
+                x_col_name_in_df = chart_data_df.columns[0]
+            else:
+                return [] 
+
+            # Rename the x-axis column to "x" and count to "y"
+            chart_data_df.rename(columns={x_col_name_in_df: "x", 'count': "y"}, inplace=True)
+            
             return chart_data_df.to_dict('records')
             
         elif chart_type == 'scatter_plot' and safe_y_axis:
-            total_rows = con.execute(f"SELECT COUNT(*) FROM {table_name};").fetchone()[0]
+            # Re-run total_rows query safely
+            total_rows_result = con.execute(f"SELECT COUNT(*) FROM {table_name};").fetchone()
+            if total_rows_result is None:
+                total_rows = 0
+            else:
+                total_rows = total_rows_result[0]
+
             limit_clause = "USING SAMPLE 1000 ROWS" if total_rows > 1000 else ""
+            
             query = f'SELECT {safe_x_axis}, {safe_y_axis} FROM {table_name} {limit_clause};'
             chart_data_df = con.execute(query).fetchdf()
-            chart_data_df.rename(columns={x_axis: "x", y_axis: "y"}, inplace=True)
+            
+            # --- CRITICAL FIX 2: Check for None or emptiness ---
+            if chart_data_df is None or chart_data_df.empty:
+                return [] 
+            
+            # Use a dictionary mapping to ensure correct renaming, checking existence first.
+            rename_map = {}
+            
+            # Check for both quoted (DuckDB standard) and unquoted name matching
+            x_col_name = x_axis
+            y_col_name = y_axis
+            
+            if x_col_name in chart_data_df.columns:
+                 rename_map[x_col_name] = "x"
+            # Fallback check for columns in case DuckDB returns quoted names.
+            elif safe_x_axis.strip('"') in chart_data_df.columns:
+                 rename_map[safe_x_axis.strip('"')] = "x"
+                 
+            if y_col_name in chart_data_df.columns:
+                 rename_map[y_col_name] = "y"
+            elif safe_y_axis.strip('"') in chart_data_df.columns:
+                 rename_map[safe_y_axis.strip('"')] = "y"
+
+            # Apply renaming
+            chart_data_df.rename(columns=rename_map, inplace=True)
+            
             return chart_data_df.to_dict('records')
         else:
             return []
     except Exception as e:
-        raise RuntimeError(f"Failed to fetch chart data: {e}")
+        # Log the error on the server side
+        print(f"❌ Error fetching chart data: {e}")
+        # Re-raise the error to be caught by the FastAPI HTTPException handler
+        raise RuntimeError(f"Failed to fetch chart data due to database error: {e}")

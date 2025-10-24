@@ -2,8 +2,10 @@ from supabase import create_client, Client
 from dotenv import load_dotenv
 import os
 
-# Load environment variables from .env in current directory
-load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '.env'))
+# Load environment variables from .env in the parent directory (server/)
+# This assumes the .env file is in the server directory, NOT the config directory.
+dotenv_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), '.env')
+load_dotenv(dotenv_path=dotenv_path)
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY")
