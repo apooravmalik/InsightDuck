@@ -1,5 +1,5 @@
 # server/main.py
-from fastapi import FastAPI, HTTPException, status, UploadFile, File, Depends
+from fastapi import FastAPI, HTTPException, status, UploadFile, File, Depends, Response
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr
@@ -10,7 +10,7 @@ from supabase.lib.client_options import ClientOptions
 from auth.auth import get_current_user
 import pandas as pd
 import io
-from utils.utils import create_project_entry, get_user_projects
+from utils.utils import create_project_entry, get_user_projects, create_project_from_kaggle, decrypt_key, encrypt_key
 
 # --- FastAPI App Initialization ---
 app = FastAPI(title="DuckDB Data Agent", version="0.1.0")
@@ -90,6 +90,15 @@ class ChartDataRequest(BaseModel):
     chart_type: str
     x_axis: str
     y_axis: str | None = None
+    
+class KaggleCredentials(BaseModel):
+    kaggle_username: str
+    kaggle_api_key: str # Plain text received from user
+
+class KaggleUploadRequest(BaseModel):
+    dataset_url: str
+    csv_filename: str | None = None
+    project_name: str | None = None
 
 # --- API Endpoints ---
 
@@ -248,6 +257,164 @@ async def upload_and_profile_csv(
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
+    
+# --- Kaggle Dataset Upload and Profiling Endpoint [Protected] ---  # New endpoint
+@app.post("/kaggle-credentials", status_code=status.HTTP_201_CREATED)
+def save_kaggle_credentials(
+    creds: KaggleCredentials, # Expects kaggle_username and plain text kaggle_api_key
+    current_user: ClientOptions = Depends(get_current_user)
+):
+    """Saves or updates the user's encrypted Kaggle credentials."""
+    try:
+        user_id = current_user.id
+        # Encrypt the API key before saving
+        encrypted_key = encrypt_key(creds.kaggle_api_key) # Ensure encrypt_key is imported
+
+        print(f"Saving credentials for user: {user_id}, username: {creds.kaggle_username}")
+        # Use upsert to handle both insert and update based on user_id
+        response = supabase.table('user_kaggle_credentials').upsert({
+            'user_id': user_id,
+            'kaggle_username': creds.kaggle_username,
+            'kaggle_api_key': encrypted_key # Store the encrypted key
+        }).execute()
+
+        # Basic check for errors (adapt based on supabase-py version if needed)
+        if hasattr(response, 'error') and response.error:
+             print(f"❌ Supabase upsert failed: {response.error.message}")
+             raise HTTPException(status_code=500, detail=f"Failed to save credentials: {response.error.message}")
+        elif hasattr(response, 'data') and not response.data:
+             print(f"❌ Supabase upsert failed: No data returned, potential issue.")
+             raise HTTPException(status_code=500, detail="Failed to save credentials (no data returned).")
+
+        print(f"✅ Credentials saved successfully for user: {user_id}")
+        return {"message": "Kaggle credentials saved successfully."}
+
+    except ValueError as ve: # Catch specific encryption errors
+        print(f"❌ Encryption error for user {user_id}: {ve}")
+        raise HTTPException(status_code=400, detail=str(ve))
+    except HTTPException as http_exc: # Re-raise known HTTP errors
+        raise http_exc
+    except Exception as e: # Catch other unexpected errors
+        print(f"❌ Unexpected error saving Kaggle credentials for user {user_id}: {e}")
+        error_msg = f"An unexpected server error occurred: {str(e)}"
+        if hasattr(e, 'message'): # More specific message if available
+             error_msg = e.message
+        raise HTTPException(status_code=500, detail=error_msg)
+
+@app.post("/upload-from-kaggle/")
+async def upload_and_profile_kaggle(
+    request: KaggleUploadRequest, # Uses updated model without credentials
+    response: Response,
+    current_user: ClientOptions = Depends(get_current_user)
+):
+    """
+    Downloads Kaggle dataset using saved credentials.
+    - If multiple CSVs found and none specified, returns 400 with a list for selection.
+    - If successful (single/specified CSV), creates project, loads data, profiles, and returns 200.
+    - Handles credential errors (400/500) and processing errors (500).
+    """
+    try:
+        user_id = current_user.id
+
+        # 1. Fetch saved credentials for the user
+        print(f"Fetching Kaggle credentials for user: {user_id}")
+        creds_response = supabase.table('user_kaggle_credentials')\
+                                 .select('kaggle_username, kaggle_api_key')\
+                                 .eq('user_id', user_id)\
+                                 .maybe_single()\
+                                 .execute()
+
+        # Handle potential Supabase fetch error
+        if hasattr(creds_response, 'error') and creds_response.error:
+            print(f"❌ Supabase error fetching credentials: {creds_response.error.message}")
+            raise HTTPException(status_code=500, detail="Failed to retrieve Kaggle credentials.")
+
+        if not creds_response.data or not creds_response.data.get('kaggle_api_key') or not creds_response.data.get('kaggle_username'):
+            print(f"⚠️ Kaggle credentials not found or incomplete for user: {user_id}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Kaggle credentials not found or incomplete. Please save them in the upload section."
+            )
+
+        kaggle_username = creds_response.data['kaggle_username']
+        encrypted_api_key = creds_response.data['kaggle_api_key']
+        print(f"✅ Credentials found for user: {kaggle_username}")
+
+        # 2. Decrypt the API key
+        try:
+            decrypted_api_key = decrypt_key(encrypted_api_key)
+            if not decrypted_api_key: # Double-check decryption didn't yield empty string
+                 raise ValueError("Decrypted key is empty.")
+            print("✅ API key decrypted successfully.")
+        except ValueError as ve:
+             print(f"❌ Decryption failed for user {user_id}: {ve}")
+             raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to decrypt stored Kaggle API key: {str(ve)}. Please try saving credentials again."
+            )
+
+        # 3. Call the utils function (can raise Exceptions)
+        print(f"Calling create_project_from_kaggle for dataset: {request.dataset_url}, file: {request.csv_filename}")
+        project_id, df, csv_files_list = create_project_from_kaggle(
+            user_id=user_id,
+            dataset_url=request.dataset_url,
+            kaggle_username=kaggle_username,
+            decrypted_kaggle_api_key=decrypted_api_key, # Pass decrypted key
+            csv_filename=request.csv_filename, # Pass user's choice if provided
+            project_name=request.project_name
+        )
+
+        # 4. Handle different outcomes from the utility function
+        if csv_files_list:
+            # ---> Multiple CSVs found, selection needed by frontend
+            print(f"Multiple CSVs found, returning list to frontend: {csv_files_list}")
+            response.status_code = status.HTTP_400_BAD_REQUEST # Use 400 to indicate user action needed
+            return {
+                "detail": "Multiple CSV files found in the dataset.",
+                "action_required": "select_csv",
+                "csv_files": csv_files_list # Send the list to the frontend
+            }
+        elif project_id is not None and df is not None:
+            # ---> Success: CSV loaded, project created
+            print(f"✅ Successfully created project ID: {project_id}")
+            table_name = f"project_{project_id}"
+            try:
+                print(f"Profiling data for table: {table_name}")
+                profile = get_data_profile(table_name=table_name)
+                profile['project_id'] = project_id # Ensure project_id is in profile
+                print(f"✅ Profiling complete.")
+                # Can use 201 if it's guaranteed new, 200 is fine for "OK" response
+                response.status_code = status.HTTP_200_OK
+                return {
+                    "message": "Kaggle dataset loaded and project created successfully.",
+                    "project_id": project_id,
+                    "profile": profile
+                }
+            except Exception as profile_error:
+                 # Handle case where profiling fails even after successful load
+                 print(f"❌ Error profiling data after Kaggle import (Project ID: {project_id}): {profile_error}")
+                 raise HTTPException(status_code=500, detail="Kaggle data loaded successfully, but failed to generate data profile.")
+        else:
+            # ---> General Error during download/processing in utils caught and returned None
+            # The specific error should have been printed in utils.py logs
+             print(f"❌ create_project_from_kaggle returned None without CSV list for user {user_id}")
+             # This path usually indicates an error already logged in utils.py
+             error_detail = "Failed to process Kaggle dataset after download. Check server logs for specific errors (e.g., file reading issues, DB errors)."
+             raise HTTPException(status_code=500, detail=error_detail)
+
+    except ValueError as ve:
+         # Catch ValueErrors raised explicitly (e.g., invalid URL, specified CSV not found)
+         print(f"❌ Value Error during Kaggle processing: {ve}")
+         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(ve))
+    except HTTPException as http_exc:
+        # Re-raise known HTTP exceptions (like 400 for missing creds, 500 for decryption)
+        raise http_exc
+    except Exception as e:
+        # Catch any other unexpected errors (e.g., Kaggle API errors, disk issues)
+        print(f"❌ Unexpected error in /upload-from-kaggle endpoint: {str(e)}")
+        import traceback
+        traceback.print_exc() # Print full traceback to logs for debugging
+        raise HTTPException(status_code=500, detail="An unexpected server error occurred during Kaggle import.")
     
 # --- Clean Data Endpoint [Protected] ---
 
