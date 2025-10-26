@@ -99,6 +99,9 @@ class KaggleUploadRequest(BaseModel):
     dataset_url: str
     csv_filename: str | None = None
     project_name: str | None = None
+    
+class KaggleUsernameResponse(BaseModel):
+    kaggle_username: str | None = None # Only return username, not key
 
 # --- API Endpoints ---
 
@@ -259,35 +262,98 @@ async def upload_and_profile_csv(
         raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
     
 # --- Kaggle Dataset Upload and Profiling Endpoint [Protected] ---  # New endpoint
-@app.post("/kaggle-credentials", status_code=status.HTTP_201_CREATED)
-def save_kaggle_credentials(
-    creds: KaggleCredentials, # Expects kaggle_username and plain text kaggle_api_key
+
+@app.get("/kaggle-credentials", response_model=KaggleUsernameResponse)
+def get_kaggle_username(
     current_user: ClientOptions = Depends(get_current_user)
 ):
-    """Saves or updates the user's encrypted Kaggle credentials."""
+    """Retrieves the user's saved Kaggle username (if any). Does NOT return the key."""
+    try:
+        user_id = current_user.id
+        print(f"Fetching Kaggle username for user: {user_id}")
+        response = supabase.table('user_kaggle_credentials')\
+                           .select('kaggle_username')\
+                           .eq('user_id', user_id)\
+                           .maybe_single()\
+                           .execute()
+
+        # Handle potential errors from Supabase
+        if hasattr(response, 'error') and response.error:
+             print(f"❌ Supabase error fetching username: {response.error.message}")
+             raise HTTPException(status_code=500, detail="Failed to retrieve Kaggle username.")
+
+        if response.data:
+            username = response.data.get('kaggle_username')
+            print(f"✅ Found username: {username}")
+            return KaggleUsernameResponse(kaggle_username=username)
+        else:
+            print(f"⚠️ No Kaggle username found for user: {user_id}")
+            return KaggleUsernameResponse(kaggle_username=None) # Return None if no credentials found
+
+    except HTTPException as http_exc: # Re-raise known HTTP errors
+        raise http_exc
+    except Exception as e:
+        print(f"❌ Error fetching Kaggle username for user {user_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"An unexpected error occurred retrieving username: {str(e)}")
+
+@app.post("/kaggle-credentials") # Removed default 201 status code here
+def save_kaggle_credentials(
+    creds: KaggleCredentials, # Expects kaggle_username and plain text kaggle_api_key
+    response: Response, # Inject Response object to set status code dynamically
+    current_user: ClientOptions = Depends(get_current_user)
+):
+    """
+    Saves (Inserts or Updates) the user's encrypted Kaggle credentials.
+    Returns 201 Created if credentials were newly saved.
+    Returns 200 OK if existing credentials were updated.
+    """
     try:
         user_id = current_user.id
         # Encrypt the API key before saving
         encrypted_key = encrypt_key(creds.kaggle_api_key) # Ensure encrypt_key is imported
 
-        print(f"Saving credentials for user: {user_id}, username: {creds.kaggle_username}")
-        # Use upsert to handle both insert and update based on user_id
-        response = supabase.table('user_kaggle_credentials').upsert({
+        # --- Check if credentials already exist ---
+        existing_creds_response = supabase.table('user_kaggle_credentials')\
+                                          .select('user_id')\
+                                          .eq('user_id', user_id)\
+                                          .maybe_single()\
+                                          .execute()
+
+        # Handle potential fetch error during check
+        if hasattr(existing_creds_response, 'error') and existing_creds_response.error:
+            print(f"❌ Supabase error checking existing credentials: {existing_creds_response.error.message}")
+            raise HTTPException(status_code=500, detail="Failed to check existing credentials.")
+
+        existed_before = existing_creds_response.data is not None
+        action_verb = "Updated" if existed_before else "Saved"
+        success_status_code = status.HTTP_200_OK if existed_before else status.HTTP_201_CREATED
+
+        print(f"{('Updating' if existed_before else 'Saving new')} credentials for user: {user_id}")
+        # --- Perform Upsert ---
+        upsert_response = supabase.table('user_kaggle_credentials').upsert({
             'user_id': user_id,
             'kaggle_username': creds.kaggle_username,
             'kaggle_api_key': encrypted_key # Store the encrypted key
         }).execute()
 
-        # Basic check for errors (adapt based on supabase-py version if needed)
-        if hasattr(response, 'error') and response.error:
-             print(f"❌ Supabase upsert failed: {response.error.message}")
-             raise HTTPException(status_code=500, detail=f"Failed to save credentials: {response.error.message}")
-        elif hasattr(response, 'data') and not response.data:
-             print(f"❌ Supabase upsert failed: No data returned, potential issue.")
-             raise HTTPException(status_code=500, detail="Failed to save credentials (no data returned).")
+        # Basic check for errors during upsert
+        if hasattr(upsert_response, 'error') and upsert_response.error:
+             print(f"❌ Supabase upsert failed: {upsert_response.error.message}")
+             raise HTTPException(status_code=500, detail=f"Failed to save credentials: {upsert_response.error.message}")
+        # Check if data was returned (might indicate success differently in some versions)
+        elif hasattr(upsert_response, 'data') and not upsert_response.data:
+             print(f"❌ Supabase upsert warning: No data returned, but no explicit error.")
+             # Consider if this is truly an error in your Supabase version, maybe just log it.
+             # raise HTTPException(status_code=500, detail="Failed to save credentials (no data returned).")
 
-        print(f"✅ Credentials saved successfully for user: {user_id}")
-        return {"message": "Kaggle credentials saved successfully."}
+
+        print(f"✅ Credentials {action_verb.lower()} successfully for user: {user_id}")
+        response.status_code = success_status_code # Set status code based on existed_before
+        return {
+            "message": f"Kaggle credentials {action_verb.lower()} successfully.",
+            "username": creds.kaggle_username, # Return username for frontend confirmation
+            "status": action_verb # Explicitly state if saved or updated
+        }
 
     except ValueError as ve: # Catch specific encryption errors
         print(f"❌ Encryption error for user {user_id}: {ve}")
@@ -297,8 +363,7 @@ def save_kaggle_credentials(
     except Exception as e: # Catch other unexpected errors
         print(f"❌ Unexpected error saving Kaggle credentials for user {user_id}: {e}")
         error_msg = f"An unexpected server error occurred: {str(e)}"
-        if hasattr(e, 'message'): # More specific message if available
-             error_msg = e.message
+        if hasattr(e, 'message'): error_msg = e.message
         raise HTTPException(status_code=500, detail=error_msg)
 
 @app.post("/upload-from-kaggle/")
